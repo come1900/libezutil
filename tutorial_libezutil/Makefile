@@ -23,7 +23,7 @@ PLATFORM = linux
 #PLATFORM = linux-mips-mipsl-openwrt
 #PLATFORM = linux-mips-mipsl-12.3-openwrt
 
-include         ../../Makefile.Defines/Makefile.Defines.$(PLATFORM)
+include         ../../lazaru/Makefile.Defines/Makefile.Defines.$(PLATFORM)
 
 CFLAGS += -Wall 
 CFLAGS +=  -g

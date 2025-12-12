@@ -1,7 +1,8 @@
-#include "ez_websocket_parser.h"
-#include <string.h>
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
+
+#include "ez_websocket_parser.h"
 
 /* WebSocket 解析器状态 */
 enum ws_state {
@@ -38,7 +39,7 @@ do { \
 do { \
 	if (settings->on_##FOR) { \
 		if (settings->on_##FOR(parser) != 0) { \
-			SET_ERRNO(WSE_UNKNOWN); \
+			SET_ERRNO(EZ_WSE_UNKNOWN); \
 			return (ER); \
 		} \
 	} \
@@ -53,14 +54,14 @@ static const struct {
 	const char *name;
 	const char *description;
 } ws_strerror_tab[] = {
-	{ "WSE_OK", "success" },
-	{ "WSE_INVALID_FRAME", "invalid frame format" },
-	{ "WSE_INVALID_OPCODE", "invalid opcode" },
-	{ "WSE_INVALID_PAYLOAD_LEN", "invalid payload length" },
-	{ "WSE_INVALID_MASK", "invalid mask" },
-	{ "WSE_INCOMPLETE_FRAME", "incomplete frame" },
-	{ "WSE_PAYLOAD_TOO_LARGE", "payload too large" },
-	{ "WSE_UNKNOWN", "unknown error" }
+	{ "EZ_WSE_OK", "success" },
+	{ "EZ_WSE_INVALID_FRAME", "invalid frame format" },
+	{ "EZ_WSE_INVALID_OPCODE", "invalid opcode" },
+	{ "EZ_WSE_INVALID_PAYLOAD_LEN", "invalid payload length" },
+	{ "EZ_WSE_INVALID_MASK", "invalid mask" },
+	{ "EZ_WSE_INCOMPLETE_FRAME", "incomplete frame" },
+	{ "EZ_WSE_PAYLOAD_TOO_LARGE", "payload too large" },
+	{ "EZ_WSE_UNKNOWN", "unknown error" }
 };
 
 /* 应用 mask */
@@ -71,30 +72,30 @@ static void apply_mask(uint8_t *data, size_t len, const uint8_t *mask_key, size_
 }
 
 /* 初始化解析器 */
-void websocket_parser_init(websocket_parser *parser) {
+void ez_websocket_parser_init(ez_websocket_parser *parser) {
 	void *data = parser->data; /* 保留用户数据 */
 	memset(parser, 0, sizeof(*parser));
 	parser->data = data;
 	parser->state = s_ws_frame_start;
-	parser->ws_errno = WSE_OK;
+	parser->ws_errno = EZ_WSE_OK;
 	parser->close_received = 0;
 }
 
 /* 初始化设置 */
-void websocket_parser_settings_init(websocket_parser_settings *settings) {
+void ez_websocket_parser_settings_init(ez_websocket_parser_settings *settings) {
 	memset(settings, 0, sizeof(*settings));
 }
 
 /* 执行解析 */
-size_t websocket_parser_execute(websocket_parser *parser,
-                                const websocket_parser_settings *settings,
+size_t ez_websocket_parser_execute(ez_websocket_parser *parser,
+                                const ez_websocket_parser_settings *settings,
                                 const char *data,
                                 size_t len) {
 	const char *p = data;
 	const char *end = data + len;
 	
 	/* 如果已经在错误状态，不继续解析 */
-	if (WEBSOCKET_PARSER_ERRNO(parser) != WSE_OK) {
+	if (EZ_WEBSOCKET_PARSER_ERRNO(parser) != EZ_WSE_OK) {
 		return 0;
 	}
 	
@@ -115,12 +116,12 @@ size_t websocket_parser_execute(websocket_parser *parser,
 			if (parser->opcode > 0x0A || 
 			    (parser->opcode > 0x02 && parser->opcode < 0x08) ||
 			    (parser->opcode > 0x0A)) {
-				SET_ERRNO(WSE_INVALID_OPCODE);
+				SET_ERRNO(EZ_WSE_INVALID_OPCODE);
 				return p - data;
 			}
 			
 			CALLBACK_NOTIFY_(frame_begin, p - data);
-			if (WEBSOCKET_PARSER_ERRNO(parser) != WSE_OK) {
+			if (EZ_WEBSOCKET_PARSER_ERRNO(parser) != EZ_WSE_OK) {
 				return p - data;
 			}
 			
@@ -158,7 +159,7 @@ size_t websocket_parser_execute(websocket_parser *parser,
 				parser->payload_len = 0;
 				UPDATE_STATE(s_ws_frame_payload_len_64_1);
 			} else {
-				SET_ERRNO(WSE_INVALID_PAYLOAD_LEN);
+				SET_ERRNO(EZ_WSE_INVALID_PAYLOAD_LEN);
 				return p - data;
 			}
 			p++;
@@ -306,7 +307,7 @@ size_t websocket_parser_execute(websocket_parser *parser,
 						
 						/* 调用回调 */
 						if (settings->on_frame_payload(parser, (const char *)temp_buf, chunk) != 0) {
-							SET_ERRNO(WSE_UNKNOWN);
+							SET_ERRNO(EZ_WSE_UNKNOWN);
 							return p - data + processed;
 						}
 						
@@ -315,7 +316,7 @@ size_t websocket_parser_execute(websocket_parser *parser,
 				} else {
 					/* 没有 mask，直接传递数据 */
 					if (settings->on_frame_payload(parser, p, to_process) != 0) {
-						SET_ERRNO(WSE_UNKNOWN);
+						SET_ERRNO(EZ_WSE_UNKNOWN);
 						return p - data;
 					}
 				}
@@ -339,12 +340,12 @@ size_t websocket_parser_execute(websocket_parser *parser,
 	
 	case s_ws_frame_complete:
 		/* 检查是否是关闭帧 */
-		if (parser->opcode == WS_OPCODE_CLOSE) {
+		if (parser->opcode == EZ_WS_OPCODE_CLOSE) {
 			parser->close_received = 1;
 		}
 			
 			CALLBACK_NOTIFY_(frame_complete, p - data);
-			if (WEBSOCKET_PARSER_ERRNO(parser) != WSE_OK) {
+			if (EZ_WEBSOCKET_PARSER_ERRNO(parser) != EZ_WSE_OK) {
 				return p - data;
 			}
 			
@@ -369,7 +370,7 @@ size_t websocket_parser_execute(websocket_parser *parser,
 		continue;
 			
 		default:
-			SET_ERRNO(WSE_INVALID_FRAME);
+			SET_ERRNO(EZ_WSE_INVALID_FRAME);
 			return p - data;
 		}
 	}
@@ -378,15 +379,15 @@ size_t websocket_parser_execute(websocket_parser *parser,
 }
 
 /* 获取错误名称 */
-const char *websocket_errno_name(enum ws_errno err) {
+const char *ez_websocket_errno_name(enum ez_ws_errno err) {
 	if (err >= 0 && err < sizeof(ws_strerror_tab) / sizeof(ws_strerror_tab[0])) {
 		return ws_strerror_tab[err].name;
 	}
-	return "WSE_UNKNOWN";
+	return "EZ_WSE_UNKNOWN";
 }
 
 /* 获取错误描述 */
-const char *websocket_errno_description(enum ws_errno err) {
+const char *ez_websocket_errno_description(enum ez_ws_errno err) {
 	if (err >= 0 && err < sizeof(ws_strerror_tab) / sizeof(ws_strerror_tab[0])) {
 		return ws_strerror_tab[err].description;
 	}
@@ -394,10 +395,10 @@ const char *websocket_errno_description(enum ws_errno err) {
 }
 
 /* 获取版本 */
-unsigned long websocket_parser_version(void) {
-	return WEBSOCKET_PARSER_VERSION_MAJOR * 0x10000 |
-	       WEBSOCKET_PARSER_VERSION_MINOR * 0x00100 |
-	       WEBSOCKET_PARSER_VERSION_PATCH * 0x00001;
+unsigned long ez_websocket_parser_version(void) {
+	return EZ_WEBSOCKET_PARSER_VERSION_MAJOR * 0x10000 |
+	       EZ_WEBSOCKET_PARSER_VERSION_MINOR * 0x00100 |
+	       EZ_WEBSOCKET_PARSER_VERSION_PATCH * 0x00001;
 }
 
 /* 获取版本字符串（类似 libuv 的 uv_version_string()） */
@@ -407,9 +408,9 @@ const char *ez_websocket_parser_version_string(void) {
 	/* 如果没有格式化过，则格式化 */
 	if (version_string[0] == '\0') {
 		snprintf(version_string, sizeof(version_string), "%d.%d.%d",
-				WEBSOCKET_PARSER_VERSION_MAJOR,
-				WEBSOCKET_PARSER_VERSION_MINOR,
-				WEBSOCKET_PARSER_VERSION_PATCH);
+				EZ_WEBSOCKET_PARSER_VERSION_MAJOR,
+				EZ_WEBSOCKET_PARSER_VERSION_MINOR,
+				EZ_WEBSOCKET_PARSER_VERSION_PATCH);
 	}
 
 	return version_string;

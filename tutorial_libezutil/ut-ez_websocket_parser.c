@@ -9,12 +9,13 @@
  * - All frames from client to server MUST be masked
  */
 
-#include "ez_websocket_parser.h"
+#include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <assert.h>
-#include <stdbool.h>
+
+#include <ezutil/ez_websocket_parser.h>
 
 /* 测试统计 */
 static int tests_run = 0;
@@ -27,7 +28,7 @@ typedef struct {
     bool frame_complete_called;
     size_t payload_received;
     char payload_buffer[65536];
-    enum ws_opcode opcode;
+    enum ez_ws_opcode opcode;
     bool fin;
     bool has_mask;
     bool close_received_flag;
@@ -35,7 +36,7 @@ typedef struct {
 
 /* RFC 6455 Section 5.2: 构建符合标准的 WebSocket 帧 */
 static size_t build_websocket_frame(uint8_t *buffer, size_t buffer_size,
-                                     bool fin, enum ws_opcode opcode,
+                                     bool fin, enum ez_ws_opcode opcode,
                                      bool masked, const uint8_t *mask_key,
                                      const uint8_t *payload, size_t payload_len) {
     size_t offset = 0;
@@ -98,22 +99,22 @@ static size_t build_websocket_frame(uint8_t *buffer, size_t buffer_size,
 }
 
 /* 回调函数 */
-static int on_frame_begin(websocket_parser *parser) {
+static int on_frame_begin(ez_websocket_parser *parser) {
     test_context_t *ctx = (test_context_t *)parser->data;
     ctx->frame_begin_called = true;
-    ctx->opcode = (enum ws_opcode)parser->opcode;
+    ctx->opcode = (enum ez_ws_opcode)parser->opcode;
     ctx->fin = parser->fin ? true : false;
     ctx->has_mask = parser->has_mask ? true : false;
     /* 重置 payload 接收状态 - 但对于分片消息，只在第一个帧时重置 */
     /* 如果是 continuation 帧（opcode=0），说明是分片消息的一部分，不清空payload */
-    if (parser->opcode != WS_OPCODE_CONTINUATION) {
+    if (parser->opcode != EZ_WS_OPCODE_CONTINUATION) {
         ctx->payload_received = 0;
         memset(ctx->payload_buffer, 0, sizeof(ctx->payload_buffer));
     }
     return 0;
 }
 
-static int on_frame_payload(websocket_parser *parser, const char *at, size_t length) {
+static int on_frame_payload(ez_websocket_parser *parser, const char *at, size_t length) {
     test_context_t *ctx = (test_context_t *)parser->data;
     /* Copy as much as fits in buffer, but always track total received */
     /* Check if buffer has space before copying */
@@ -129,11 +130,11 @@ static int on_frame_payload(websocket_parser *parser, const char *at, size_t len
     return 0;
 }
 
-static int on_frame_complete(websocket_parser *parser) {
+static int on_frame_complete(ez_websocket_parser *parser) {
     test_context_t *ctx = (test_context_t *)parser->data;
     ctx->frame_complete_called = true;
     /* 在回调中保存状态信息，因为之后状态可能被重置 */
-    ctx->opcode = (enum ws_opcode)parser->opcode;
+    ctx->opcode = (enum ez_ws_opcode)parser->opcode;
     ctx->has_mask = parser->has_mask ? true : false;
     ctx->fin = parser->fin ? true : false;
     if (parser->close_received) {
@@ -170,12 +171,12 @@ static const char *current_test_name = NULL;
 static void test_rfc6455_text_frame_unmasked(void) {
     TEST_START("RFC 6455: Text frame (unmasked, server to client)");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -185,24 +186,24 @@ static void test_rfc6455_text_frame_unmasked(void) {
     const char *payload = "Hello, WebSocket!";
     uint8_t frame[256];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true, 
-                                             WS_OPCODE_TEXT, false, NULL,
+                                             EZ_WS_OPCODE_TEXT, false, NULL,
                                              (const uint8_t *)payload, strlen(payload));
     
-    size_t parsed = websocket_parser_execute(&parser, &settings, 
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings, 
                                              (const char *)frame, frame_len);
     
     /* RFC 6455: Should parse complete frame */
     TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.frame_begin_called, "Should call frame_begin callback");
     
     /* If complete callback not called, try calling parser again to trigger post-loop check */
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(ctx.frame_complete_called, "Should call frame_complete callback");
-    TEST_ASSERT(ctx.opcode == WS_OPCODE_TEXT, "opcode should be TEXT (0x1)");
+    TEST_ASSERT(ctx.opcode == EZ_WS_OPCODE_TEXT, "opcode should be TEXT (0x1)");
     TEST_ASSERT(ctx.fin == true, "FIN bit should be 1");
     TEST_ASSERT(ctx.has_mask == false, "Server to client frame should have no mask");
     TEST_ASSERT(ctx.payload_received == strlen(payload), "Should receive complete payload");
@@ -216,12 +217,12 @@ static void test_rfc6455_text_frame_unmasked(void) {
 static void test_rfc6455_text_frame_masked(void) {
     TEST_START("RFC 6455: Text frame (masked, client to server)");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -232,22 +233,22 @@ static void test_rfc6455_text_frame_masked(void) {
     uint8_t mask_key[4] = {0x37, 0xFA, 0x21, 0x3D};
     uint8_t frame[256];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                             WS_OPCODE_TEXT, true, mask_key,
+                                             EZ_WS_OPCODE_TEXT, true, mask_key,
                                              (const uint8_t *)payload, strlen(payload));
     
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)frame, frame_len);
     
     TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.frame_begin_called, "Should call frame_begin callback");
     
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(ctx.frame_complete_called, "Should call frame_complete callback");
-    TEST_ASSERT(ctx.opcode == WS_OPCODE_TEXT, "opcode should be TEXT (0x1)");
+    TEST_ASSERT(ctx.opcode == EZ_WS_OPCODE_TEXT, "opcode should be TEXT (0x1)");
     TEST_ASSERT(ctx.has_mask == true, "Client to server frame should have mask");
     TEST_ASSERT(ctx.payload_received == strlen(payload), "Should receive complete payload");
     TEST_ASSERT(memcmp(ctx.payload_buffer, payload, strlen(payload)) == 0,
@@ -260,12 +261,12 @@ static void test_rfc6455_text_frame_masked(void) {
 static void test_rfc6455_binary_frame(void) {
     TEST_START("RFC 6455: Binary frame");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -275,19 +276,19 @@ static void test_rfc6455_binary_frame(void) {
     uint8_t payload[] = {0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE, 0xFD};
     uint8_t frame[256];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                             WS_OPCODE_BINARY, true, NULL,
+                                             EZ_WS_OPCODE_BINARY, true, NULL,
                                              payload, sizeof(payload));
     
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)frame, frame_len);
     
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
-    TEST_ASSERT(ctx.opcode == WS_OPCODE_BINARY, "opcode should be BINARY (0x2)");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
+    TEST_ASSERT(ctx.opcode == EZ_WS_OPCODE_BINARY, "opcode should be BINARY (0x2)");
     TEST_ASSERT(ctx.payload_received > 0, "Should receive payload data");
     if (ctx.payload_received == sizeof(payload)) {
         TEST_ASSERT(memcmp(ctx.payload_buffer, payload, sizeof(payload)) == 0,
@@ -301,12 +302,12 @@ static void test_rfc6455_binary_frame(void) {
 static void test_rfc6455_ping_frame(void) {
     TEST_START("RFC 6455: PING control frame");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -317,19 +318,19 @@ static void test_rfc6455_ping_frame(void) {
     const char *payload = "ping data";
     uint8_t frame[256];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                             WS_OPCODE_PING, true, NULL,
+                                             EZ_WS_OPCODE_PING, true, NULL,
                                              (const uint8_t *)payload, strlen(payload));
     
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)frame, frame_len);
     
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
-    TEST_ASSERT(ctx.opcode == WS_OPCODE_PING, "opcode should be PING (0x9)");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
+    TEST_ASSERT(ctx.opcode == EZ_WS_OPCODE_PING, "opcode should be PING (0x9)");
     TEST_ASSERT(ctx.fin == true, "Control frame FIN bit must be 1");
     
     TEST_PASS();
@@ -339,12 +340,12 @@ static void test_rfc6455_ping_frame(void) {
 static void test_rfc6455_pong_frame(void) {
     TEST_START("RFC 6455: PONG control frame");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -353,19 +354,19 @@ static void test_rfc6455_pong_frame(void) {
     
     uint8_t frame[256];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                             WS_OPCODE_PONG, true, NULL,
+                                             EZ_WS_OPCODE_PONG, true, NULL,
                                              NULL, 0);
     
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)frame, frame_len);
     
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
-    TEST_ASSERT(ctx.opcode == WS_OPCODE_PONG, "opcode should be PONG (0xA)");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
+    TEST_ASSERT(ctx.opcode == EZ_WS_OPCODE_PONG, "opcode should be PONG (0xA)");
     TEST_ASSERT(ctx.fin == true, "Control frame FIN bit must be 1");
     
     TEST_PASS();
@@ -375,12 +376,12 @@ static void test_rfc6455_pong_frame(void) {
 static void test_rfc6455_close_frame(void) {
     TEST_START("RFC 6455: CLOSE control frame");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -395,19 +396,19 @@ static void test_rfc6455_close_frame(void) {
     
     uint8_t frame[256];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                             WS_OPCODE_CLOSE, true, NULL,
+                                             EZ_WS_OPCODE_CLOSE, true, NULL,
                                              close_payload, sizeof(close_payload));
     
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)frame, frame_len);
     
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
-    TEST_ASSERT(ctx.opcode == WS_OPCODE_CLOSE, "opcode should be CLOSE (0x8)");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
+    TEST_ASSERT(ctx.opcode == EZ_WS_OPCODE_CLOSE, "opcode should be CLOSE (0x8)");
     TEST_ASSERT(ctx.fin == true, "Control frame FIN bit must be 1");
     TEST_ASSERT(ctx.close_received_flag == true, "Should set close_received flag");
     
@@ -418,12 +419,12 @@ static void test_rfc6455_close_frame(void) {
 static void test_rfc6455_empty_payload(void) {
     TEST_START("RFC 6455: Empty payload frame");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -432,24 +433,24 @@ static void test_rfc6455_empty_payload(void) {
     
     uint8_t frame[256];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                             WS_OPCODE_PING, false, NULL,
+                                             EZ_WS_OPCODE_PING, false, NULL,
                                              NULL, 0);
     
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)frame, frame_len);
     
     /* RFC 6455: Empty payload frame should also be fully parsed and call complete callback */
     /* If complete callback not called, try calling parser again to trigger post-loop check */
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.frame_begin_called, "Should call frame_begin callback");
     /* RFC 6455: Empty payload frame should also call complete callback */
     TEST_ASSERT(ctx.frame_complete_called, "Should call frame_complete callback for empty payload frame");
-    TEST_ASSERT(ctx.opcode == WS_OPCODE_PING, "opcode should be PING");
+    TEST_ASSERT(ctx.opcode == EZ_WS_OPCODE_PING, "opcode should be PING");
     TEST_ASSERT(ctx.payload_received == 0, "Should have no payload");
     
     TEST_PASS();
@@ -459,12 +460,12 @@ static void test_rfc6455_empty_payload(void) {
 static void test_rfc6455_payload_length_125(void) {
     TEST_START("RFC 6455: Payload length 125 (7-bit length field)");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -478,18 +479,18 @@ static void test_rfc6455_payload_length_125(void) {
     
     uint8_t frame[512];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                             WS_OPCODE_BINARY, false, NULL,
+                                             EZ_WS_OPCODE_BINARY, false, NULL,
                                              payload, sizeof(payload));
     
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)frame, frame_len);
     
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.payload_received == sizeof(payload), "Should receive complete payload");
     
     TEST_PASS();
@@ -498,12 +499,12 @@ static void test_rfc6455_payload_length_125(void) {
 static void test_rfc6455_payload_length_126(void) {
     TEST_START("RFC 6455: Payload length 126 (16-bit length field)");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -517,18 +518,18 @@ static void test_rfc6455_payload_length_126(void) {
     
     uint8_t frame[512];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                             WS_OPCODE_BINARY, false, NULL,
+                                             EZ_WS_OPCODE_BINARY, false, NULL,
                                              payload, sizeof(payload));
     
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)frame, frame_len);
     
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.payload_received == sizeof(payload), "Should receive complete payload");
     
     TEST_PASS();
@@ -537,12 +538,12 @@ static void test_rfc6455_payload_length_126(void) {
 static void test_rfc6455_payload_length_127(void) {
     TEST_START("RFC 6455: Payload length 127 (16-bit length field)");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -556,18 +557,18 @@ static void test_rfc6455_payload_length_127(void) {
     
     uint8_t frame[512];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                             WS_OPCODE_BINARY, false, NULL,
+                                             EZ_WS_OPCODE_BINARY, false, NULL,
                                              payload, sizeof(payload));
     
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)frame, frame_len);
     
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.payload_received == sizeof(payload), "Should receive complete payload");
     
     TEST_PASS();
@@ -576,12 +577,12 @@ static void test_rfc6455_payload_length_127(void) {
 static void test_rfc6455_payload_length_128(void) {
     TEST_START("RFC 6455: Payload length 128 (16-bit length field)");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -595,18 +596,18 @@ static void test_rfc6455_payload_length_128(void) {
     
     uint8_t frame[512];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                             WS_OPCODE_BINARY, false, NULL,
+                                             EZ_WS_OPCODE_BINARY, false, NULL,
                                              payload, sizeof(payload));
     
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)frame, frame_len);
     
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.payload_received == sizeof(payload), "Should receive complete payload");
     
     TEST_PASS();
@@ -616,12 +617,12 @@ static void test_rfc6455_payload_length_128(void) {
 static void test_rfc6455_invalid_opcode(void) {
     TEST_START("RFC 6455: Invalid opcode (reserved opcodes)");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -633,11 +634,11 @@ static void test_rfc6455_invalid_opcode(void) {
     frame[0] = 0x80 | 0x03; /* FIN=1, opcode=3 (reserved) */
     frame[1] = 0x00; /* No mask, empty payload */
     
-    (void)websocket_parser_execute(&parser, &settings,
+    (void)ez_websocket_parser_execute(&parser, &settings,
                                    (const char *)frame, 2);
     
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_INVALID_OPCODE,
-                "Should return WSE_INVALID_OPCODE error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_INVALID_OPCODE,
+                "Should return EZ_WSE_INVALID_OPCODE error");
     
     TEST_PASS();
 }
@@ -646,12 +647,12 @@ static void test_rfc6455_invalid_opcode(void) {
 static void test_rfc6455_continuation_frame(void) {
     TEST_START("RFC 6455: Continuation frame");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -661,19 +662,19 @@ static void test_rfc6455_continuation_frame(void) {
     const char *payload = "Continuation";
     uint8_t frame[256];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                             WS_OPCODE_CONTINUATION, false, NULL,
+                                             EZ_WS_OPCODE_CONTINUATION, false, NULL,
                                              (const uint8_t *)payload, strlen(payload));
     
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)frame, frame_len);
     
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
-    TEST_ASSERT(ctx.opcode == WS_OPCODE_CONTINUATION, "opcode should be CONTINUATION (0x0)");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
+    TEST_ASSERT(ctx.opcode == EZ_WS_OPCODE_CONTINUATION, "opcode should be CONTINUATION (0x0)");
     
     TEST_PASS();
 }
@@ -682,12 +683,12 @@ static void test_rfc6455_continuation_frame(void) {
 static void test_rfc6455_fin_flag(void) {
     TEST_START("RFC 6455: FIN flag");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -699,14 +700,14 @@ static void test_rfc6455_fin_flag(void) {
     
     /* Test FIN=0 */
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), false,
-                                             WS_OPCODE_TEXT, false, NULL,
+                                             EZ_WS_OPCODE_TEXT, false, NULL,
                                              (const uint8_t *)payload, strlen(payload));
     
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)frame, frame_len);
     
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
@@ -714,15 +715,15 @@ static void test_rfc6455_fin_flag(void) {
     
     /* Test FIN=1 */
     memset(&ctx, 0, sizeof(ctx));
-    websocket_parser_init(&parser);
+    ez_websocket_parser_init(&parser);
     parser.data = &ctx;
     frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                     WS_OPCODE_TEXT, false, NULL,
+                                     EZ_WS_OPCODE_TEXT, false, NULL,
                                      (const uint8_t *)payload, strlen(payload));
-    parsed = websocket_parser_execute(&parser, &settings,
+    parsed = ez_websocket_parser_execute(&parser, &settings,
                                      (const char *)frame, frame_len);
-    if (!ctx.frame_complete_called && parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     TEST_ASSERT(ctx.fin == true, "FIN should be true (1)");
     
@@ -733,12 +734,12 @@ static void test_rfc6455_fin_flag(void) {
 static void test_rfc6455_payload_length_64bit(void) {
     TEST_START("RFC 6455: Payload length 65536 (64-bit length field)");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -770,7 +771,7 @@ static void test_rfc6455_payload_length_64bit(void) {
     }
     
     size_t frame_len = build_websocket_frame(frame, payload_len + 32, true,
-                                             WS_OPCODE_BINARY, false, NULL,
+                                             EZ_WS_OPCODE_BINARY, false, NULL,
                                              payload, payload_len);
     
     TEST_ASSERT(frame_len > 0, "Should build frame successfully");
@@ -785,11 +786,11 @@ static void test_rfc6455_payload_length_64bit(void) {
         size_t remaining = frame_len - offset;
         size_t to_parse = (remaining > chunk_size) ? chunk_size : remaining;
         
-        size_t parsed = websocket_parser_execute(&parser, &settings,
+        size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                                  (const char *)(frame + offset), to_parse);
         total_parsed += parsed;
         
-        if (WEBSOCKET_PARSER_ERRNO(&parser) != WSE_OK) {
+        if (EZ_WEBSOCKET_PARSER_ERRNO(&parser) != EZ_WSE_OK) {
             break;
         }
         
@@ -798,12 +799,12 @@ static void test_rfc6455_payload_length_64bit(void) {
         }
     }
     
-    if (!ctx.frame_complete_called && total_parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && total_parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(total_parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.frame_begin_called, "Should call frame_begin callback");
     TEST_ASSERT(ctx.frame_complete_called, "Should call frame_complete callback");
     
@@ -830,12 +831,12 @@ static void test_rfc6455_payload_length_64bit(void) {
 static void test_rfc6455_control_frame_payload_limit(void) {
     TEST_START("RFC 6455: Control frame payload length limit (max 125 bytes)");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -851,22 +852,22 @@ static void test_rfc6455_control_frame_payload_limit(void) {
     
     uint8_t frame[512];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                             WS_OPCODE_PING, true, NULL,
+                                             EZ_WS_OPCODE_PING, true, NULL,
                                              payload, sizeof(payload));
     
-    (void)websocket_parser_execute(&parser, &settings,
+    (void)ez_websocket_parser_execute(&parser, &settings,
                                    (const char *)frame, frame_len);
     
     /* RFC 6455 Section 5.5: Control frames MUST NOT have payload length > 125 */
     /* Note: Parser may not enforce this, but RFC requires it */
     /* If parser rejects it, verify the error; if not, verify it parses correctly */
-    if (WEBSOCKET_PARSER_ERRNO(&parser) == WSE_INVALID_PAYLOAD_LEN) {
+    if (EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_INVALID_PAYLOAD_LEN) {
         /* Parser correctly rejects control frame with payload > 125 bytes */
         /* This is the expected behavior per RFC 6455 */
     } else {
         /* Parser accepts it (implementation limitation) */
         /* Verify that it at least parses correctly */
-        TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK,
+        TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK,
                     "Parser should parse without error (implementation may not enforce RFC limit)");
         TEST_ASSERT(ctx.frame_complete_called, "Should call frame_complete callback");
         TEST_ASSERT(ctx.payload_received == sizeof(payload), "Should receive all payload");
@@ -874,21 +875,21 @@ static void test_rfc6455_control_frame_payload_limit(void) {
     
     /* Test CLOSE with 126 bytes (should be rejected per RFC) */
     memset(&ctx, 0, sizeof(ctx));
-    websocket_parser_init(&parser);
+    ez_websocket_parser_init(&parser);
     parser.data = &ctx;
     frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                     WS_OPCODE_CLOSE, true, NULL,
+                                     EZ_WS_OPCODE_CLOSE, true, NULL,
                                      payload, sizeof(payload));
-    (void)websocket_parser_execute(&parser, &settings,
+    (void)ez_websocket_parser_execute(&parser, &settings,
                                    (const char *)frame, frame_len);
-    if (!ctx.frame_complete_called && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
-    if (WEBSOCKET_PARSER_ERRNO(&parser) == WSE_INVALID_PAYLOAD_LEN) {
+    if (EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_INVALID_PAYLOAD_LEN) {
         /* Parser correctly rejects */
     } else {
         /* Parser accepts it - verify parsing */
-        TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK,
+        TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK,
                     "Parser should parse without error (implementation may not enforce RFC limit)");
     }
     
@@ -899,12 +900,12 @@ static void test_rfc6455_control_frame_payload_limit(void) {
 static void test_rfc6455_control_frame_fin_requirement(void) {
     TEST_START("RFC 6455: Control frame FIN bit requirement (must be 1)");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -915,19 +916,19 @@ static void test_rfc6455_control_frame_fin_requirement(void) {
     /* Test PING with FIN=0 (should be rejected) */
     uint8_t frame[256];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), false,
-                                             WS_OPCODE_PING, true, NULL,
+                                             EZ_WS_OPCODE_PING, true, NULL,
                                              NULL, 0);
     
-    (void)websocket_parser_execute(&parser, &settings,
+    (void)ez_websocket_parser_execute(&parser, &settings,
                                    (const char *)frame, frame_len);
     
     /* Parser should reject control frame with FIN=0 */
     /* Note: Current parser may not explicitly check this, but RFC 6455 requires it */
     /* If parser doesn't reject, we note it but don't fail the test */
-    if (WEBSOCKET_PARSER_ERRNO(&parser) != WSE_OK) {
+    if (EZ_WEBSOCKET_PARSER_ERRNO(&parser) != EZ_WSE_OK) {
         /* Parser correctly rejected */
-        TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_INVALID_FRAME ||
-                    WEBSOCKET_PARSER_ERRNO(&parser) == WSE_INVALID_OPCODE,
+        TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_INVALID_FRAME ||
+                    EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_INVALID_OPCODE,
                     "Should reject control frame with FIN=0");
     } else {
         /* Parser accepted it, which is acceptable for this test */
@@ -937,16 +938,16 @@ static void test_rfc6455_control_frame_fin_requirement(void) {
     
     /* Test CLOSE with FIN=0 (should be rejected) */
     memset(&ctx, 0, sizeof(ctx));
-    websocket_parser_init(&parser);
+    ez_websocket_parser_init(&parser);
     parser.data = &ctx;
     frame_len = build_websocket_frame(frame, sizeof(frame), false,
-                                     WS_OPCODE_CLOSE, true, NULL,
+                                     EZ_WS_OPCODE_CLOSE, true, NULL,
                                      NULL, 0);
-    (void)websocket_parser_execute(&parser, &settings,
+    (void)ez_websocket_parser_execute(&parser, &settings,
                                    (const char *)frame, frame_len);
-    if (WEBSOCKET_PARSER_ERRNO(&parser) != WSE_OK) {
-        TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_INVALID_FRAME ||
-                    WEBSOCKET_PARSER_ERRNO(&parser) == WSE_INVALID_OPCODE,
+    if (EZ_WEBSOCKET_PARSER_ERRNO(&parser) != EZ_WSE_OK) {
+        TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_INVALID_FRAME ||
+                    EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_INVALID_OPCODE,
                     "Should reject CLOSE frame with FIN=0");
     }
     
@@ -957,12 +958,12 @@ static void test_rfc6455_control_frame_fin_requirement(void) {
 static void test_rfc6455_fragmented_message(void) {
     TEST_START("RFC 6455: Fragmented message sequence");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -981,13 +982,13 @@ static void test_rfc6455_fragmented_message(void) {
     
     uint8_t frame1[256], frame2[256], frame3[256];
     size_t len1 = build_websocket_frame(frame1, sizeof(frame1), false,
-                                       WS_OPCODE_TEXT, false, NULL,
+                                       EZ_WS_OPCODE_TEXT, false, NULL,
                                        (const uint8_t *)fragment1, strlen(fragment1));
     size_t len2 = build_websocket_frame(frame2, sizeof(frame2), false,
-                                       WS_OPCODE_CONTINUATION, false, NULL,
+                                       EZ_WS_OPCODE_CONTINUATION, false, NULL,
                                        (const uint8_t *)fragment2, strlen(fragment2));
     size_t len3 = build_websocket_frame(frame3, sizeof(frame3), true,
-                                       WS_OPCODE_CONTINUATION, false, NULL,
+                                       EZ_WS_OPCODE_CONTINUATION, false, NULL,
                                        (const uint8_t *)fragment3, strlen(fragment3));
     
     /* Combine all fragments */
@@ -998,15 +999,15 @@ static void test_rfc6455_fragmented_message(void) {
     size_t total_len = len1 + len2 + len3;
     
     /* Parse fragmented message as a single stream */
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)combined, total_len);
     
-    if (!ctx.frame_complete_called && parsed == total_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == total_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == total_len, "Should parse complete fragmented message");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.frame_begin_called, "Should call frame_begin callback");
     TEST_ASSERT(ctx.frame_complete_called, "Should call frame_complete callback");
     
@@ -1025,16 +1026,16 @@ static void test_rfc6455_fragmented_message(void) {
 /* Test context for multiple frames tracking */
 typedef struct {
     int frame_count;
-    enum ws_opcode opcodes[10];
+    enum ez_ws_opcode opcodes[10];
     bool fins[10];
     size_t payload_lengths[10];
     bool frame_complete_flags[10];
 } multi_frame_context_t;
 
-static int on_frame_begin_multi(websocket_parser *parser) {
+static int on_frame_begin_multi(ez_websocket_parser *parser) {
     multi_frame_context_t *ctx = (multi_frame_context_t *)parser->data;
     if (ctx->frame_count < 10) {
-        ctx->opcodes[ctx->frame_count] = (enum ws_opcode)parser->opcode;
+        ctx->opcodes[ctx->frame_count] = (enum ez_ws_opcode)parser->opcode;
         ctx->fins[ctx->frame_count] = parser->fin ? true : false;
         ctx->payload_lengths[ctx->frame_count] = 0;
         ctx->frame_complete_flags[ctx->frame_count] = false;
@@ -1042,7 +1043,7 @@ static int on_frame_begin_multi(websocket_parser *parser) {
     return 0;
 }
 
-static int on_frame_payload_multi(websocket_parser *parser, const char *at, size_t length) {
+static int on_frame_payload_multi(ez_websocket_parser *parser, const char *at, size_t length) {
     multi_frame_context_t *ctx = (multi_frame_context_t *)parser->data;
     if (ctx->frame_count < 10) {
         ctx->payload_lengths[ctx->frame_count] += length;
@@ -1050,7 +1051,7 @@ static int on_frame_payload_multi(websocket_parser *parser, const char *at, size
     return 0;
 }
 
-static int on_frame_complete_multi(websocket_parser *parser) {
+static int on_frame_complete_multi(ez_websocket_parser *parser) {
     multi_frame_context_t *ctx = (multi_frame_context_t *)parser->data;
     if (ctx->frame_count < 10) {
         ctx->frame_complete_flags[ctx->frame_count] = true;
@@ -1063,12 +1064,12 @@ static int on_frame_complete_multi(websocket_parser *parser) {
 static void test_rfc6455_multiple_complete_frames(void) {
     TEST_START("RFC 6455: Multiple complete frames in single buffer");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     multi_frame_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin_multi;
@@ -1082,13 +1083,13 @@ static void test_rfc6455_multiple_complete_frames(void) {
     
     uint8_t frame1[256], frame2[256], frame3[256];
     size_t len1 = build_websocket_frame(frame1, sizeof(frame1), true,
-                                       WS_OPCODE_TEXT, false, NULL,
+                                       EZ_WS_OPCODE_TEXT, false, NULL,
                                        (const uint8_t *)payload1, strlen(payload1));
     size_t len2 = build_websocket_frame(frame2, sizeof(frame2), true,
-                                       WS_OPCODE_TEXT, false, NULL,
+                                       EZ_WS_OPCODE_TEXT, false, NULL,
                                        (const uint8_t *)payload2, strlen(payload2));
     size_t len3 = build_websocket_frame(frame3, sizeof(frame3), true,
-                                       WS_OPCODE_TEXT, false, NULL,
+                                       EZ_WS_OPCODE_TEXT, false, NULL,
                                        (const uint8_t *)payload3, strlen(payload3));
     
     /* Combine all frames into single buffer */
@@ -1099,19 +1100,19 @@ static void test_rfc6455_multiple_complete_frames(void) {
     size_t total_len = len1 + len2 + len3;
     
     /* Parse all frames in single call */
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)combined, total_len);
     
-    if (ctx.frame_count < 3 && parsed == total_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (ctx.frame_count < 3 && parsed == total_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == total_len, "Should parse all frames");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.frame_count == 3, "Should receive 3 complete frames");
-    TEST_ASSERT(ctx.opcodes[0] == WS_OPCODE_TEXT, "First frame should be TEXT");
-    TEST_ASSERT(ctx.opcodes[1] == WS_OPCODE_TEXT, "Second frame should be TEXT");
-    TEST_ASSERT(ctx.opcodes[2] == WS_OPCODE_TEXT, "Third frame should be TEXT");
+    TEST_ASSERT(ctx.opcodes[0] == EZ_WS_OPCODE_TEXT, "First frame should be TEXT");
+    TEST_ASSERT(ctx.opcodes[1] == EZ_WS_OPCODE_TEXT, "Second frame should be TEXT");
+    TEST_ASSERT(ctx.opcodes[2] == EZ_WS_OPCODE_TEXT, "Third frame should be TEXT");
     TEST_ASSERT(ctx.fins[0] == true && ctx.fins[1] == true && ctx.fins[2] == true,
                 "All frames should have FIN=1");
     TEST_ASSERT(ctx.frame_complete_flags[0] && ctx.frame_complete_flags[1] && ctx.frame_complete_flags[2],
@@ -1128,12 +1129,12 @@ static void test_rfc6455_multiple_complete_frames(void) {
 static void test_rfc6455_mixed_frame_types(void) {
     TEST_START("RFC 6455: Mixed frame types (TEXT + BINARY + PING)");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     multi_frame_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin_multi;
@@ -1147,13 +1148,13 @@ static void test_rfc6455_mixed_frame_types(void) {
     
     uint8_t frame1[256], frame2[256], frame3[256];
     size_t len1 = build_websocket_frame(frame1, sizeof(frame1), true,
-                                       WS_OPCODE_TEXT, false, NULL,
+                                       EZ_WS_OPCODE_TEXT, false, NULL,
                                        (const uint8_t *)text_payload, strlen(text_payload));
     size_t len2 = build_websocket_frame(frame2, sizeof(frame2), true,
-                                       WS_OPCODE_BINARY, false, NULL,
+                                       EZ_WS_OPCODE_BINARY, false, NULL,
                                        binary_payload, sizeof(binary_payload));
     size_t len3 = build_websocket_frame(frame3, sizeof(frame3), true,
-                                       WS_OPCODE_PING, false, NULL,
+                                       EZ_WS_OPCODE_PING, false, NULL,
                                        (const uint8_t *)ping_payload, strlen(ping_payload));
     
     /* Combine all frames into single buffer */
@@ -1164,19 +1165,19 @@ static void test_rfc6455_mixed_frame_types(void) {
     size_t total_len = len1 + len2 + len3;
     
     /* Parse all frames in single call */
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)combined, total_len);
     
-    if (ctx.frame_count < 3 && parsed == total_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (ctx.frame_count < 3 && parsed == total_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == total_len, "Should parse all frames");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.frame_count == 3, "Should receive 3 complete frames");
-    TEST_ASSERT(ctx.opcodes[0] == WS_OPCODE_TEXT, "First frame should be TEXT");
-    TEST_ASSERT(ctx.opcodes[1] == WS_OPCODE_BINARY, "Second frame should be BINARY");
-    TEST_ASSERT(ctx.opcodes[2] == WS_OPCODE_PING, "Third frame should be PING");
+    TEST_ASSERT(ctx.opcodes[0] == EZ_WS_OPCODE_TEXT, "First frame should be TEXT");
+    TEST_ASSERT(ctx.opcodes[1] == EZ_WS_OPCODE_BINARY, "Second frame should be BINARY");
+    TEST_ASSERT(ctx.opcodes[2] == EZ_WS_OPCODE_PING, "Third frame should be PING");
     TEST_ASSERT(ctx.frame_complete_flags[0] && ctx.frame_complete_flags[1] && ctx.frame_complete_flags[2],
                 "All frames should call frame_complete callback");
     TEST_ASSERT(ctx.payload_lengths[0] == strlen(text_payload) &&
@@ -1191,12 +1192,12 @@ static void test_rfc6455_mixed_frame_types(void) {
 static void test_rfc6455_multiple_fragments_in_packet(void) {
     TEST_START("RFC 6455: Multiple fragments in single packet");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -1212,13 +1213,13 @@ static void test_rfc6455_multiple_fragments_in_packet(void) {
     
     uint8_t frame1[256], frame2[256], frame3[256];
     size_t len1 = build_websocket_frame(frame1, sizeof(frame1), false,
-                                       WS_OPCODE_TEXT, false, NULL,
+                                       EZ_WS_OPCODE_TEXT, false, NULL,
                                        (const uint8_t *)fragment1, strlen(fragment1));
     size_t len2 = build_websocket_frame(frame2, sizeof(frame2), false,
-                                       WS_OPCODE_CONTINUATION, false, NULL,
+                                       EZ_WS_OPCODE_CONTINUATION, false, NULL,
                                        (const uint8_t *)fragment2, strlen(fragment2));
     size_t len3 = build_websocket_frame(frame3, sizeof(frame3), true,
-                                       WS_OPCODE_CONTINUATION, false, NULL,
+                                       EZ_WS_OPCODE_CONTINUATION, false, NULL,
                                        (const uint8_t *)fragment3, strlen(fragment3));
     
     /* Combine all fragments into single packet */
@@ -1229,15 +1230,15 @@ static void test_rfc6455_multiple_fragments_in_packet(void) {
     size_t packet_len = len1 + len2 + len3;
     
     /* Parse entire packet containing all fragments */
-    size_t parsed = websocket_parser_execute(&parser, &settings,
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                              (const char *)packet, packet_len);
     
-    if (!ctx.frame_complete_called && parsed == packet_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && parsed == packet_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed == packet_len, "Should parse complete packet");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.frame_begin_called, "Should call frame_begin callback");
     TEST_ASSERT(ctx.frame_complete_called, "Should call frame_complete callback");
     
@@ -1256,12 +1257,12 @@ static void test_rfc6455_multiple_fragments_in_packet(void) {
 static void test_rfc6455_large_payload(void) {
     TEST_START("RFC 6455: Large payload handling (10MB)");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -1296,7 +1297,7 @@ static void test_rfc6455_large_payload(void) {
     
     /* Build frame */
     size_t frame_len = build_websocket_frame(frame, frame_size, true,
-                                             WS_OPCODE_BINARY, false, NULL,
+                                             EZ_WS_OPCODE_BINARY, false, NULL,
                                              payload, payload_len);
     
     TEST_ASSERT(frame_len > 0, "Should build frame successfully");
@@ -1311,11 +1312,11 @@ static void test_rfc6455_large_payload(void) {
         size_t remaining = frame_len - offset;
         size_t to_parse = (remaining > chunk_size) ? chunk_size : remaining;
         
-        size_t parsed = websocket_parser_execute(&parser, &settings,
+        size_t parsed = ez_websocket_parser_execute(&parser, &settings,
                                                  (const char *)(frame + offset), to_parse);
         total_parsed += parsed;
         
-        if (WEBSOCKET_PARSER_ERRNO(&parser) != WSE_OK) {
+        if (EZ_WEBSOCKET_PARSER_ERRNO(&parser) != EZ_WSE_OK) {
             break;
         }
         
@@ -1324,12 +1325,12 @@ static void test_rfc6455_large_payload(void) {
         }
     }
     
-    if (!ctx.frame_complete_called && total_parsed == frame_len && WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+    if (!ctx.frame_complete_called && total_parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(total_parsed == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.frame_begin_called, "Should call frame_begin callback");
     TEST_ASSERT(ctx.frame_complete_called, "Should call frame_complete callback");
     
@@ -1357,12 +1358,12 @@ static void test_rfc6455_large_payload(void) {
 static void test_rfc6455_partial_frame_data(void) {
     TEST_START("RFC 6455: Single frame data arriving in multiple chunks");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -1373,7 +1374,7 @@ static void test_rfc6455_partial_frame_data(void) {
     const char *payload = "This is a test message that will arrive in chunks";
     uint8_t frame[512];
     size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
-                                             WS_OPCODE_TEXT, false, NULL,
+                                             EZ_WS_OPCODE_TEXT, false, NULL,
                                              (const uint8_t *)payload, strlen(payload));
     
     /* Simulate data arriving in multiple small chunks */
@@ -1384,41 +1385,41 @@ static void test_rfc6455_partial_frame_data(void) {
     }
     
     /* First chunk: header only */
-    size_t parsed1 = websocket_parser_execute(&parser, &settings,
+    size_t parsed1 = ez_websocket_parser_execute(&parser, &settings,
                                               (const char *)frame, header_size);
     TEST_ASSERT(parsed1 == header_size, "Should parse header chunk");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error after header");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error after header");
     TEST_ASSERT(ctx.frame_begin_called, "Should call frame_begin after header");
     
     /* Second chunk: first part of payload */
     size_t payload_chunk1_size = strlen(payload) / 3;
-    size_t parsed2 = websocket_parser_execute(&parser, &settings,
+    size_t parsed2 = ez_websocket_parser_execute(&parser, &settings,
                                               (const char *)(frame + header_size), payload_chunk1_size);
     TEST_ASSERT(parsed2 == payload_chunk1_size, "Should parse first payload chunk");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     
     /* Third chunk: second part of payload */
     size_t payload_chunk2_size = strlen(payload) / 3;
-    size_t parsed3 = websocket_parser_execute(&parser, &settings,
+    size_t parsed3 = ez_websocket_parser_execute(&parser, &settings,
                                               (const char *)(frame + header_size + payload_chunk1_size),
                                               payload_chunk2_size);
     TEST_ASSERT(parsed3 == payload_chunk2_size, "Should parse second payload chunk");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     
     /* Fourth chunk: remaining payload */
     size_t remaining_payload = strlen(payload) - payload_chunk1_size - payload_chunk2_size;
-    size_t parsed4 = websocket_parser_execute(&parser, &settings,
+    size_t parsed4 = ez_websocket_parser_execute(&parser, &settings,
                                               (const char *)(frame + header_size + payload_chunk1_size + payload_chunk2_size),
                                               remaining_payload);
     TEST_ASSERT(parsed4 == remaining_payload, "Should parse remaining payload chunk");
     
     if (!ctx.frame_complete_called && parsed1 + parsed2 + parsed3 + parsed4 == frame_len &&
-        WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+        EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
     TEST_ASSERT(parsed1 + parsed2 + parsed3 + parsed4 == frame_len, "Should parse complete frame");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.frame_complete_called, "Should call frame_complete callback");
     TEST_ASSERT(ctx.payload_received == strlen(payload), "Should receive complete payload");
     TEST_ASSERT(memcmp(ctx.payload_buffer, payload, strlen(payload)) == 0,
@@ -1431,12 +1432,12 @@ static void test_rfc6455_partial_frame_data(void) {
 static void test_rfc6455_fragmented_message_multiple_arrivals(void) {
     TEST_START("RFC 6455: Fragmented message with fragments arriving separately");
     
-    websocket_parser parser;
-    websocket_parser_settings settings;
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
     test_context_t ctx = {0};
     
-    websocket_parser_init(&parser);
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
     parser.data = &ctx;
     
     settings.on_frame_begin = on_frame_begin;
@@ -1451,43 +1452,43 @@ static void test_rfc6455_fragmented_message_multiple_arrivals(void) {
     
     uint8_t frame1[256], frame2[256], frame3[256];
     size_t len1 = build_websocket_frame(frame1, sizeof(frame1), false,
-                                       WS_OPCODE_TEXT, false, NULL,
+                                       EZ_WS_OPCODE_TEXT, false, NULL,
                                        (const uint8_t *)fragment1, strlen(fragment1));
     size_t len2 = build_websocket_frame(frame2, sizeof(frame2), false,
-                                       WS_OPCODE_CONTINUATION, false, NULL,
+                                       EZ_WS_OPCODE_CONTINUATION, false, NULL,
                                        (const uint8_t *)fragment2, strlen(fragment2));
     size_t len3 = build_websocket_frame(frame3, sizeof(frame3), true,
-                                       WS_OPCODE_CONTINUATION, false, NULL,
+                                       EZ_WS_OPCODE_CONTINUATION, false, NULL,
                                        (const uint8_t *)fragment3, strlen(fragment3));
     
     /* Simulate fragments arriving separately (common network scenario) */
     /* First fragment arrives */
-    size_t parsed1 = websocket_parser_execute(&parser, &settings,
+    size_t parsed1 = ez_websocket_parser_execute(&parser, &settings,
                                               (const char *)frame1, len1);
     TEST_ASSERT(parsed1 == len1, "Should parse first fragment");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.frame_begin_called, "Should call frame_begin for first fragment");
     TEST_ASSERT(ctx.payload_received == strlen(fragment1), "Should receive first fragment payload");
     
     /* Second fragment arrives later */
-    size_t parsed2 = websocket_parser_execute(&parser, &settings,
+    size_t parsed2 = ez_websocket_parser_execute(&parser, &settings,
                                               (const char *)frame2, len2);
     TEST_ASSERT(parsed2 == len2, "Should parse second fragment");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.payload_received == strlen(fragment1) + strlen(fragment2),
                 "Should accumulate payload from both fragments");
     
     /* Third fragment arrives last */
-    size_t parsed3 = websocket_parser_execute(&parser, &settings,
+    size_t parsed3 = ez_websocket_parser_execute(&parser, &settings,
                                               (const char *)frame3, len3);
     TEST_ASSERT(parsed3 == len3, "Should parse third fragment");
     
     if (!ctx.frame_complete_called && parsed1 + parsed2 + parsed3 == len1 + len2 + len3 &&
-        WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK) {
-        websocket_parser_execute(&parser, &settings, "", 0);
+        EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
     }
     
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Should have no error");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
     TEST_ASSERT(ctx.frame_complete_called, "Should call frame_complete callback after final fragment");
     
     /* Verify complete payload */
@@ -1503,10 +1504,10 @@ static void test_rfc6455_fragmented_message_multiple_arrivals(void) {
 static void test_version_function(void) {
     TEST_START("Version function");
     
-    unsigned long version = websocket_parser_version();
-    unsigned long expected = (WEBSOCKET_PARSER_VERSION_MAJOR * 0x10000) |
-                            (WEBSOCKET_PARSER_VERSION_MINOR * 0x00100) |
-                            (WEBSOCKET_PARSER_VERSION_PATCH * 0x00001);
+    unsigned long version = ez_websocket_parser_version();
+    unsigned long expected = (EZ_WEBSOCKET_PARSER_VERSION_MAJOR * 0x10000) |
+                            (EZ_WEBSOCKET_PARSER_VERSION_MINOR * 0x00100) |
+                            (EZ_WEBSOCKET_PARSER_VERSION_PATCH * 0x00001);
     
     TEST_ASSERT(version == expected, "Version number should match");
     
@@ -1517,16 +1518,16 @@ static void test_version_function(void) {
 static void test_error_functions(void) {
     TEST_START("Error functions");
     
-    for (enum ws_errno err = WSE_OK; err <= WSE_UNKNOWN; err++) {
-        const char *name = websocket_errno_name(err);
-        const char *desc = websocket_errno_description(err);
+    for (enum ez_ws_errno err = EZ_WSE_OK; err <= EZ_WSE_UNKNOWN; err++) {
+        const char *name = ez_websocket_errno_name(err);
+        const char *desc = ez_websocket_errno_description(err);
         
         TEST_ASSERT(name != NULL && strlen(name) > 0, "Error name should not be empty");
         TEST_ASSERT(desc != NULL && strlen(desc) > 0, "Error description should not be empty");
     }
     
-    const char *name = websocket_errno_name((enum ws_errno)999);
-    TEST_ASSERT(strcmp(name, "WSE_UNKNOWN") == 0, "Invalid error code should return WSE_UNKNOWN");
+    const char *name = ez_websocket_errno_name((enum ez_ws_errno)999);
+    TEST_ASSERT(strcmp(name, "EZ_WSE_UNKNOWN") == 0, "Invalid error code should return EZ_WSE_UNKNOWN");
     
     TEST_PASS();
 }
@@ -1534,16 +1535,16 @@ static void test_error_functions(void) {
 static void test_parser_init(void) {
     TEST_START("Parser initialization");
     
-    websocket_parser parser;
+    ez_websocket_parser parser;
     test_context_t ctx = {0};
     
     parser.data = &ctx;
-    parser.ws_errno = WSE_INVALID_FRAME;
+    parser.ws_errno = EZ_WSE_INVALID_FRAME;
     
-    websocket_parser_init(&parser);
+    ez_websocket_parser_init(&parser);
     
     TEST_ASSERT(parser.data == &ctx, "User data should be preserved");
-    TEST_ASSERT(WEBSOCKET_PARSER_ERRNO(&parser) == WSE_OK, "Error state should be reset");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Error state should be reset");
     TEST_ASSERT(parser.close_received == 0, "close_received should be reset");
     
     TEST_PASS();
@@ -1552,13 +1553,13 @@ static void test_parser_init(void) {
 static void test_settings_init(void) {
     TEST_START("Settings initialization");
     
-    websocket_parser_settings settings;
+    ez_websocket_parser_settings settings;
     
-    settings.on_frame_begin = (ws_cb)0x12345678;
-    settings.on_frame_payload = (ws_data_cb)0x87654321;
-    settings.on_frame_complete = (ws_cb)0xABCDEF00;
+    settings.on_frame_begin = (ez_ws_cb)0x12345678;
+    settings.on_frame_payload = (ez_ws_data_cb)0x87654321;
+    settings.on_frame_complete = (ez_ws_cb)0xABCDEF00;
     
-    websocket_parser_settings_init(&settings);
+    ez_websocket_parser_settings_init(&settings);
     
     TEST_ASSERT(settings.on_frame_begin == NULL, "Callbacks should be cleared");
     TEST_ASSERT(settings.on_frame_payload == NULL, "Callbacks should be cleared");
