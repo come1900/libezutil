@@ -1,0 +1,73 @@
+
+ifndef PREFIX_BASEDIR_SRC
+PREFIX_BASEDIR_SRC = .
+endif
+
+LIB_OBJS =      \
+		$(PREFIX_BASEDIR_SRC)/base64.o  \
+		$(PREFIX_BASEDIR_SRC)/base58.o \
+		$(PREFIX_BASEDIR_SRC)/libbase58.o \
+		$(PREFIX_BASEDIR_SRC)/crc8.o  \
+		$(PREFIX_BASEDIR_SRC)/crc16.o  \
+		$(PREFIX_BASEDIR_SRC)/ez_mod_bus_crc16.o \
+		$(PREFIX_BASEDIR_SRC)/ez_crc16_xmoden.o \
+		$(PREFIX_BASEDIR_SRC)/crc32.o  \
+		$(PREFIX_BASEDIR_SRC)/aes.o  \
+		$(PREFIX_BASEDIR_SRC)/des.o  \
+		$(PREFIX_BASEDIR_SRC)/d3des.o  \
+		$(PREFIX_BASEDIR_SRC)/ez_bit.o  \
+		$(PREFIX_BASEDIR_SRC)/ez_fs.o  \
+		$(PREFIX_BASEDIR_SRC)/ez_log.o  \
+		$(PREFIX_BASEDIR_SRC)/ez_system_api.o  \
+		$(PREFIX_BASEDIR_SRC)/http_parser.o  \
+		$(PREFIX_BASEDIR_SRC)/ez_websocket_parser.o \
+		$(PREFIX_BASEDIR_SRC)/ez_adlc.o \
+		$(PREFIX_BASEDIR_SRC)/ez_hdlc.o \
+		$(PREFIX_BASEDIR_SRC)/md5.o  \
+		$(PREFIX_BASEDIR_SRC)/std_md5.o  \
+		$(PREFIX_BASEDIR_SRC)/ez_md5.o \
+		$(PREFIX_BASEDIR_SRC)/sha1.o  \
+		$(PREFIX_BASEDIR_SRC)/sha256.o	\
+		$(PREFIX_BASEDIR_SRC)/jsmn.o  \
+		$(PREFIX_BASEDIR_SRC)/ez_url_parser.o \
+		$(PREFIX_BASEDIR_SRC)/ez_http_query_parser.o \
+		$(PREFIX_BASEDIR_SRC)/ez_appkey.o \
+		$(PREFIX_BASEDIR_SRC)/ini.o \
+		$(PREFIX_BASEDIR_SRC)/JSON_checker.o \
+		$(PREFIX_BASEDIR_SRC)/ez_c_printf.o \
+		$(PREFIX_BASEDIR_SRC)/timespec.o \
+		$(PREFIX_BASEDIR_SRC)/dataIdx.o \
+		$(PREFIX_BASEDIR_SRC)/str_opr.o
+
+LIB_SRCS =      \
+		$(PREFIX_BASEDIR_SRC)/base64.c  \
+		$(PREFIX_BASEDIR_SRC)/base58.c  \
+		$(PREFIX_BASEDIR_SRC)/crc8.c  \
+		$(PREFIX_BASEDIR_SRC)/crc16.c  \
+		$(PREFIX_BASEDIR_SRC)/ez_mod_bus_crc16.c \
+		$(PREFIX_BASEDIR_SRC)/ez_crc16_xmoden.c \
+		$(PREFIX_BASEDIR_SRC)/crc32.c  \
+		$(PREFIX_BASEDIR_SRC)/aes.cpp  \
+		$(PREFIX_BASEDIR_SRC)/des.cpp  \
+		$(PREFIX_BASEDIR_SRC)/d3des.c  \
+		$(PREFIX_BASEDIR_SRC)/ez_bit.c  \
+		$(PREFIX_BASEDIR_SRC)/ez_fs.c  \
+		$(PREFIX_BASEDIR_SRC)/ez_log.c  \
+		$(PREFIX_BASEDIR_SRC)/ez_system_api.c  \
+		$(PREFIX_BASEDIR_SRC)/http_parser.c  \
+		$(PREFIX_BASEDIR_SRC)/ez_websocket_parser.c \
+		$(PREFIX_BASEDIR_SRC)/ez_adlc.c \
+		$(PREFIX_BASEDIR_SRC)/ez_hdlc.c \
+		$(PREFIX_BASEDIR_SRC)/md5.c  \
+		$(PREFIX_BASEDIR_SRC)/sha1.c  \
+		$(PREFIX_BASEDIR_SRC)/sha256.c	\
+		$(PREFIX_BASEDIR_SRC)/jsmn.c  \
+		$(PREFIX_BASEDIR_SRC)/ez_url_parser.c \
+		$(PREFIX_BASEDIR_SRC)/ez_http_query_parser.c \
+		$(PREFIX_BASEDIR_SRC)/ez_appkey.c \
+		$(PREFIX_BASEDIR_SRC)/ini.c \
+		$(PREFIX_BASEDIR_SRC)/JSON_checker.c \
+		$(PREFIX_BASEDIR_SRC)/ez_c_printf.c \
+		$(PREFIX_BASEDIR_SRC)/timespec.c \
+		$(PREFIX_BASEDIR_SRC)/dataIdx.c \
+		$(PREFIX_BASEDIR_SRC)/str_opr.c

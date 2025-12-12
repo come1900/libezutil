@@ -1,0 +1,26 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "test_ezutil_win", "test_ezutil_win.vcxproj", "{57E2A2B2-C93F-4D1F-A2D3-12ABBFA5FB04}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "test_ezutil_ezlog_win", "test_ezutil_ezlog_win.vcxproj", "{5BFE6A5C-5CF8-440D-9C1B-1221ABF06240}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{57E2A2B2-C93F-4D1F-A2D3-12ABBFA5FB04}.Debug|Win32.ActiveCfg = Debug|Win32
+		{57E2A2B2-C93F-4D1F-A2D3-12ABBFA5FB04}.Debug|Win32.Build.0 = Debug|Win32
+		{57E2A2B2-C93F-4D1F-A2D3-12ABBFA5FB04}.Release|Win32.ActiveCfg = Release|Win32
+		{57E2A2B2-C93F-4D1F-A2D3-12ABBFA5FB04}.Release|Win32.Build.0 = Release|Win32
+		{5BFE6A5C-5CF8-440D-9C1B-1221ABF06240}.Debug|Win32.ActiveCfg = Debug|Win32
+		{5BFE6A5C-5CF8-440D-9C1B-1221ABF06240}.Debug|Win32.Build.0 = Debug|Win32
+		{5BFE6A5C-5CF8-440D-9C1B-1221ABF06240}.Release|Win32.ActiveCfg = Release|Win32
+		{5BFE6A5C-5CF8-440D-9C1B-1221ABF06240}.Release|Win32.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
