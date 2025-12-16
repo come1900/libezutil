@@ -162,3 +162,83 @@ void sha256_final(SHA256_CTX *ctx, unsigned char hash[])
 		hash[i + 28] = (ctx->state[7] >> (24 - i * 8)) & 0x000000ff;
 	}
 }
+
+/*********************** FUNCTION DEFINITIONS ***********************/
+/*-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-*/
+/*
+ * ez_hmac_sha256_manual - HMAC-SHA256 implementation
+ *
+ * @key:      pointer to the key buffer
+ * @key_len:  length of the key in bytes
+ * @msg:      pointer to the message buffer
+ * @msg_len:  length of the message in bytes
+ * @out:      output buffer for HMAC-SHA256 result (must be at least 32 bytes)
+ *
+ * Return:
+ *     0     - success
+ *     -101  - invalid parameter: output buffer is NULL
+ *     -102  - invalid parameter: key is NULL when key_len > 0
+ *     -103  - invalid parameter: message is NULL when msg_len > 0
+ *
+ * Explain:
+ *     Compute HMAC-SHA256 according to RFC 2104.
+ *     If key_len > 64, the key is first hashed using SHA256.
+ *     Empty key (key_len == 0) and empty message (msg_len == 0) are allowed.
+ */
+/*-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-*/
+int ez_hmac_sha256_manual(const uint8_t *key, size_t key_len,
+	const uint8_t *msg, size_t msg_len,
+	uint8_t out[32])
+{
+	uint8_t k_ipad[64];  // inner padding
+	uint8_t k_opad[64];  // outer padding
+	uint8_t inner_hash[32];
+	uint8_t key_block[64] = {0};
+	SHA256_CTX ctx;
+	int i;
+
+	// Parameter validation
+	if (out == NULL) {
+		return -101;
+	}
+	if (key_len > 0 && key == NULL) {
+		return -102;
+	}
+	if (msg_len > 0 && msg == NULL) {
+		return -103;
+	}
+
+	// Step 1: Process key
+	if (key_len > 64) {
+		// If key length > 64, hash the key first
+		sha256_init(&ctx);
+		sha256_update(&ctx, key, key_len);
+		sha256_final(&ctx, key_block);
+	} else if (key_len > 0) {
+		memcpy(key_block, key, key_len);
+		// Remaining bytes are already 0 (initialized to zero)
+	}
+	// If key_len == 0, key_block remains all zeros
+
+	// Step 2: Construct k_ipad and k_opad
+	for (i = 0; i < 64; i++) {
+		k_ipad[i] = key_block[i] ^ 0x36;
+		k_opad[i] = key_block[i] ^ 0x5C;
+	}
+
+	// Step 3: inner hash = H(k_ipad || msg)
+	sha256_init(&ctx);
+	sha256_update(&ctx, k_ipad, 64);
+	if (msg_len > 0) {
+		sha256_update(&ctx, msg, msg_len);
+	}
+	sha256_final(&ctx, inner_hash);
+
+	// Step 4: outer hash = H(k_opad || inner_hash)
+	sha256_init(&ctx);
+	sha256_update(&ctx, k_opad, 64);
+	sha256_update(&ctx, inner_hash, 32);
+	sha256_final(&ctx, out);
+
+	return 0;
+}
