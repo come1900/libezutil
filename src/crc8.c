@@ -14,8 +14,8 @@
 
 #include "crc.h"
 
-//CRC±í
-static const unsigned char const static_signal_control_crc8_table[] =
+//CRCï¿½ï¿½
+static const unsigned char static_signal_control_crc8_table[] =
     {
         0, 94,188,226, 97, 63,221,131,194,156,126, 32,163,253, 31, 65,
         157,195, 33,127,252,162, 64, 30, 95,  1,227,189, 62, 96,130,220,
@@ -35,7 +35,7 @@ static const unsigned char const static_signal_control_crc8_table[] =
         116, 42,200,150, 21, 75,169,247,182,232, 10, 84,215,137,107, 53
     };
 
-//¼ÆËãcrc8
+//ï¿½ï¿½ï¿½ï¿½crc8
 unsigned char ez_crc8(const unsigned char intv,const unsigned char *dat, const unsigned int len)
 {
     unsigned char crc=intv;
@@ -60,11 +60,11 @@ int main(int argc, char *argv[])
     CRC = signal_control_crc8(0x33, buf, sizeof(buf));
     printf("signal_control_crc8:0x%0x\n", CRC);
 
-    // crc½á¹ûÎªaa£¬ ½«aa¼ÓÈëÔËËã£¬ ÕýºÃÎª0ÊÇÕýÈ·µÄ
+    // crcï¿½ï¿½ï¿½Îªaaï¿½ï¿½ ï¿½ï¿½aaï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ã£¬ ï¿½ï¿½ï¿½ï¿½Îª0ï¿½ï¿½ï¿½ï¿½È·ï¿½ï¿½
     unsigned char buf_r[] = {0x01, 0x6E, 0x65, 0x00, 0x01, 0x01, 0x20, 0x9D, 0x6B, 0xBF, 0x52, 0x55, 0xC5, 0x0C, 0xC2, 0xAA};
     CRC = signal_control_crc8(0x33, buf_r, sizeof(buf_r));
     printf("signal_control_crc8:0x%0x\n", CRC);
-    // Ð£ÑéÊý¾ÝµÄÊ±ºòÊ¾ÀýÈçÏÂ£º
+    // Ð£ï¿½ï¿½ï¿½ï¿½ï¿½Ýµï¿½Ê±ï¿½ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½ï¿½Â£ï¿½
     if (signal_control_crc8(0x33, buf_r, sizeof(buf_r))==0)
     {
         printf("crc ok\n");

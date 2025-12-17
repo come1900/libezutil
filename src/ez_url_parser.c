@@ -88,6 +88,10 @@ ez_parse_url(const char *url)
         }
     }
     /* Copy the scheme to the storage */
+    if (len <= 0 || len > 1024) {
+        ez_parsed_url_free(purl);
+        return NULL;
+    }
     purl->scheme = malloc(sizeof(char) * (len + 1));
     if ( NULL == purl->scheme ) {
         ez_parsed_url_free(purl);
@@ -145,7 +149,9 @@ ez_parse_url(const char *url)
             ez_parsed_url_free(purl);
             return NULL;
         }
-        (void)strncpy(purl->username, curstr, len);
+        if (len > 0) {
+            (void)strncpy(purl->username, curstr, len);
+        }
         purl->username[len] = '\0';
         /* Proceed current pointer */
         curstr = tmpstr;
@@ -245,7 +251,9 @@ ez_parse_url(const char *url)
         ez_parsed_url_free(purl);
         return NULL;
     }
-    (void)strncpy(purl->path, curstr, len);
+    if (len > 0) {
+        (void)strncpy(purl->path, curstr, len);
+    }
     purl->path[len] = '\0';
     curstr = tmpstr;
 

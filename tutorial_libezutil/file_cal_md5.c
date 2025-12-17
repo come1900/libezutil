@@ -32,7 +32,7 @@ static char copyright[] =
 static char rcsid[] = "$Tools: file_cal_md5.c,v 1.0 2006-3-11 13:22 joy.woo Exp $";
 #endif /* not lint */
 
-const int const FILE_PICE_SIZE = 4096;
+const int FILE_PICE_SIZE = 4096;
 
 int file_md5(char *output, char *p_filename);
 

@@ -24,9 +24,9 @@ extern "C"
 
 
 #define EZ_STD_MD5_RESULT_LEN 16 // Byte
-    inline int ez_cal_std_md5(char *dst, size_t dst_len/*16*/, const char *src, size_t src_len);
+    int ez_cal_std_md5(char *dst, size_t dst_len/*16*/, const char *src, size_t src_len);
 
-    //×ª»»Îª´óÐ´×Ö·û´®µÄ×Ö·û³¤¶È£¬ »º´æ³¤¶È×¢Òâ+1
+    //×ªï¿½ï¿½Îªï¿½ï¿½Ð´ï¿½Ö·ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ö·ï¿½ï¿½ï¿½ï¿½È£ï¿½ ï¿½ï¿½ï¿½æ³¤ï¿½ï¿½×¢ï¿½ï¿½+1
 #define EZ_STD_MD5_STRING_LEN_UP_32B 32 // Byte
 
     int ez_cal_std_md5_32b_up_string(char *dst, size_t dst_len/*33*/, const char *src, size_t src_len);
