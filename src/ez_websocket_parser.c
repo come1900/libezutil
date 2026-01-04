@@ -71,6 +71,43 @@ static void apply_mask(uint8_t *data, size_t len, const uint8_t *mask_key, size_
 	}
 }
 
+/* 处理帧完成 - 统一处理frame_complete逻辑
+ * 返回值：0表示成功继续，-1表示应该停止或出错 */
+static int handle_frame_complete(ez_websocket_parser *parser,
+                                  const ez_websocket_parser_settings *settings,
+                                  const char *data, const char *p) {
+	/* 检查是否是关闭帧 */
+	if (parser->opcode == EZ_WS_OPCODE_CLOSE) {
+		parser->close_received = 1;
+	}
+	
+	/* 调用frame_complete回调 */
+	if (settings->on_frame_complete) {
+		if (settings->on_frame_complete(parser) != 0) {
+			SET_ERRNO(EZ_WSE_UNKNOWN);
+			return -1;
+		}
+	}
+	
+	/* 如果收到关闭帧，停止解析 */
+	if (parser->close_received) {
+		return -1;
+	}
+	
+	/* 重置状态，准备解析下一个帧 */
+	parser->state = s_ws_frame_start;
+	parser->fin = 0;
+	parser->opcode = 0;
+	parser->mask = 0;
+	parser->has_mask = 0;
+	parser->payload_len = 0;
+	parser->payload_received = 0;
+	parser->mask_index = 0;
+	parser->payload_len_type = 0;
+	
+	return 0;
+}
+
 /* 初始化解析器 */
 void ez_websocket_parser_init(ez_websocket_parser *parser) {
 	void *data = parser->data; /* 保留用户数据 */
@@ -129,41 +166,48 @@ size_t ez_websocket_parser_execute(ez_websocket_parser *parser,
 			p++;
 			break;
 			
-		case s_ws_frame_opcode:
-			/* 第二个字节：MASK + Payload length */
-			parser->mask = (ch & 0x80) ? 1 : 0;
-			parser->has_mask = parser->mask;
-			parser->payload_len = ch & 0x7F;
-			
+	case s_ws_frame_opcode:
+		/* 第二个字节：MASK + Payload length */
+		parser->mask = (ch & 0x80) ? 1 : 0;
+		parser->has_mask = parser->mask;
+		parser->payload_len = ch & 0x7F;
+		
 		if (parser->payload_len < 126) {
 			parser->payload_len_type = 0;
 			parser->payload_received = 0;
 			if (parser->mask) {
 				UPDATE_STATE(s_ws_frame_mask_key_1);
-			} else {
-				/* 没有 mask，清空 mask 相关字段 */
-				parser->mask_index = 0;
-				memset(parser->masking_key, 0, sizeof(parser->masking_key));
-				if (parser->payload_len == 0) {
-					UPDATE_STATE(s_ws_frame_complete);
-				} else {
-					UPDATE_STATE(s_ws_frame_payload);
+		} else {
+			/* 没有 mask，清空 mask 相关字段 */
+			parser->mask_index = 0;
+			memset(parser->masking_key, 0, sizeof(parser->masking_key));
+			if (parser->payload_len == 0) {
+				UPDATE_STATE(s_ws_frame_complete);
+				p++;
+				/* 空payload无mask，立即处理frame_complete */
+				if (handle_frame_complete(parser, settings, data, p) != 0) {
+					return p - data;
 				}
-			}
-			} else if (parser->payload_len == 126) {
-				parser->payload_len_type = 1;
-				parser->payload_len = 0;
-				UPDATE_STATE(s_ws_frame_payload_len_16_1);
-			} else if (parser->payload_len == 127) {
-				parser->payload_len_type = 2;
-				parser->payload_len = 0;
-				UPDATE_STATE(s_ws_frame_payload_len_64_1);
+				/* 继续处理下一个帧 */
+				continue;
 			} else {
-				SET_ERRNO(EZ_WSE_INVALID_PAYLOAD_LEN);
-				return p - data;
+				UPDATE_STATE(s_ws_frame_payload);
 			}
-			p++;
-			break;
+		}
+	} else if (parser->payload_len == 126) {
+			parser->payload_len_type = 1;
+			parser->payload_len = 0;
+			UPDATE_STATE(s_ws_frame_payload_len_16_1);
+		} else if (parser->payload_len == 127) {
+			parser->payload_len_type = 2;
+			parser->payload_len = 0;
+			UPDATE_STATE(s_ws_frame_payload_len_64_1);
+		} else {
+			SET_ERRNO(EZ_WSE_INVALID_PAYLOAD_LEN);
+			return p - data;
+		}
+		p++;
+		break;
 			
 		case s_ws_frame_payload_len_16_1:
 			parser->payload_len = ((uint64_t)ch << 8);
@@ -176,18 +220,27 @@ size_t ez_websocket_parser_execute(ez_websocket_parser *parser,
 		parser->payload_received = 0;
 		if (parser->mask) {
 			UPDATE_STATE(s_ws_frame_mask_key_1);
+			p++;
+			break;
 		} else {
 			/* 没有 mask，清空 mask 相关字段 */
 			parser->mask_index = 0;
 			memset(parser->masking_key, 0, sizeof(parser->masking_key));
 			if (parser->payload_len == 0) {
 				UPDATE_STATE(s_ws_frame_complete);
+				p++;
+				/* 空payload无mask，立即处理frame_complete */
+				if (handle_frame_complete(parser, settings, data, p) != 0) {
+					return p - data;
+				}
+				/* 继续处理下一个帧 */
+				continue;
 			} else {
 				UPDATE_STATE(s_ws_frame_payload);
+				p++;
+				break;
 			}
 		}
-			p++;
-			break;
 			
 		case s_ws_frame_payload_len_64_1:
 			parser->payload_len = ((uint64_t)ch << 56);
@@ -236,18 +289,27 @@ size_t ez_websocket_parser_execute(ez_websocket_parser *parser,
 		parser->payload_received = 0;
 		if (parser->mask) {
 			UPDATE_STATE(s_ws_frame_mask_key_1);
+			p++;
+			break;
 		} else {
 			/* 没有 mask，清空 mask 相关字段 */
 			parser->mask_index = 0;
 			memset(parser->masking_key, 0, sizeof(parser->masking_key));
 			if (parser->payload_len == 0) {
 				UPDATE_STATE(s_ws_frame_complete);
+				p++;
+				/* 空payload无mask，立即处理frame_complete */
+				if (handle_frame_complete(parser, settings, data, p) != 0) {
+					return p - data;
+				}
+				/* 继续处理下一个帧 */
+				continue;
 			} else {
 				UPDATE_STATE(s_ws_frame_payload);
+				p++;
+				break;
 			}
 		}
-		p++;
-		break;
 			
 		case s_ws_frame_mask_key_1:
 			parser->masking_key[0] = ch;
@@ -268,16 +330,23 @@ size_t ez_websocket_parser_execute(ez_websocket_parser *parser,
 			p++;
 			break;
 			
-		case s_ws_frame_mask_key_4:
-			parser->masking_key[3] = ch;
-			parser->payload_received = 0;
-			if (parser->payload_len == 0) {
-				UPDATE_STATE(s_ws_frame_complete);
-			} else {
-				UPDATE_STATE(s_ws_frame_payload);
+	case s_ws_frame_mask_key_4:
+		parser->masking_key[3] = ch;
+		parser->payload_received = 0;
+		if (parser->payload_len == 0) {
+			UPDATE_STATE(s_ws_frame_complete);
+			p++;
+			/* 空payload有mask，立即处理frame_complete */
+			if (handle_frame_complete(parser, settings, data, p) != 0) {
+				return p - data;
 			}
+			/* 继续处理下一个帧 */
+			continue;
+		} else {
+			UPDATE_STATE(s_ws_frame_payload);
 			p++;
 			break;
+		}
 			
 	case s_ws_frame_payload:
 		{
@@ -339,33 +408,12 @@ size_t ez_websocket_parser_execute(ez_websocket_parser *parser,
 	/* 注意：如果 payload 接收完毕，会 fall through 到 s_ws_frame_complete */
 	
 	case s_ws_frame_complete:
-		/* 检查是否是关闭帧 */
-		if (parser->opcode == EZ_WS_OPCODE_CLOSE) {
-			parser->close_received = 1;
+		/* 使用统一的handle_frame_complete函数处理 */
+		if (handle_frame_complete(parser, settings, data, p) != 0) {
+			return p - data;
 		}
-			
-			CALLBACK_NOTIFY_(frame_complete, p - data);
-			if (EZ_WEBSOCKET_PARSER_ERRNO(parser) != EZ_WSE_OK) {
-				return p - data;
-			}
-			
-			/* 如果收到关闭帧，停止解析 */
-			if (parser->close_received) {
-				return p - data;
-			}
-			
-		/* 重置状态，准备解析下一个帧 */
-		parser->state = s_ws_frame_start;
-		parser->fin = 0;
-		parser->opcode = 0;
-		parser->mask = 0;
-		parser->has_mask = 0;
-		parser->payload_len = 0;
-		parser->payload_received = 0;
-		parser->mask_index = 0;
-		parser->payload_len_type = 0;
 		/* 不增加 p，因为当前字节可能属于下一个帧 */
-		/* 继续处理剩余数据（如果有），不使用 break，让循环条件检查 */
+		/* 继续处理剩余数据（如果有），让循环条件检查 */
 		/* 如果 p < end，继续处理下一个帧；否则循环自然结束 */
 		continue;
 			

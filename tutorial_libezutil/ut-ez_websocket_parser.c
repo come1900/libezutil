@@ -372,6 +372,49 @@ static void test_rfc6455_pong_frame(void) {
     TEST_PASS();
 }
 
+/* RFC 6455 Section 5.5: Test PONG frame with payload (回调验证) */
+static void test_rfc6455_pong_frame_with_payload_callback(void) {
+    TEST_START("RFC 6455: PONG frame with payload and callback verification");
+    
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
+    test_context_t ctx = {0};
+    
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
+    parser.data = &ctx;
+    
+    settings.on_frame_begin = on_frame_begin;
+    settings.on_frame_payload = on_frame_payload;
+    settings.on_frame_complete = on_frame_complete;
+    
+    /* PONG 帧可以包含应用数据（通常是对应PING的数据） */
+    const char *pong_payload = "pong response";
+    uint8_t frame[256];
+    size_t frame_len = build_websocket_frame(frame, sizeof(frame), true,
+                                             EZ_WS_OPCODE_PONG, true, NULL,
+                                             (const uint8_t *)pong_payload, strlen(pong_payload));
+    
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
+                                             (const char *)frame, frame_len);
+    
+    if (!ctx.frame_complete_called && parsed == frame_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
+    }
+    
+    TEST_ASSERT(parsed == frame_len, "Should parse complete frame");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
+    TEST_ASSERT(ctx.frame_begin_called, "Should call frame_begin callback");
+    TEST_ASSERT(ctx.frame_complete_called, "Should call frame_complete callback");
+    TEST_ASSERT(ctx.opcode == EZ_WS_OPCODE_PONG, "opcode should be PONG (0xA)");
+    TEST_ASSERT(ctx.fin == true, "Control frame FIN bit must be 1");
+    TEST_ASSERT(ctx.payload_received == strlen(pong_payload), "Should receive PONG payload");
+    TEST_ASSERT(memcmp(ctx.payload_buffer, pong_payload, strlen(pong_payload)) == 0,
+                "PONG payload content should match");
+    
+    TEST_PASS();
+}
+
 /* RFC 6455 Section 5.5.1: Test control frame - CLOSE */
 static void test_rfc6455_close_frame(void) {
     TEST_START("RFC 6455: CLOSE control frame");
@@ -1500,6 +1543,342 @@ static void test_rfc6455_fragmented_message_multiple_arrivals(void) {
     TEST_PASS();
 }
 
+/* RFC 6455: PING + PONG 组合测试 */
+static void test_combo_ping_pong_sequence(void) {
+    TEST_START("Combo: PING followed by PONG");
+    
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
+    multi_frame_context_t ctx = {0};
+    
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
+    parser.data = &ctx;
+    
+    settings.on_frame_begin = on_frame_begin_multi;
+    settings.on_frame_payload = on_frame_payload_multi;
+    settings.on_frame_complete = on_frame_complete_multi;
+    
+    /* 构建 PING + PONG 帧序列 */
+    const char *ping_data = "ping";
+    const char *pong_data = "pong";
+    
+    uint8_t frame1[256], frame2[256];
+    size_t len1 = build_websocket_frame(frame1, sizeof(frame1), true,
+                                       EZ_WS_OPCODE_PING, true, NULL,
+                                       (const uint8_t *)ping_data, strlen(ping_data));
+    size_t len2 = build_websocket_frame(frame2, sizeof(frame2), true,
+                                       EZ_WS_OPCODE_PONG, true, NULL,
+                                       (const uint8_t *)pong_data, strlen(pong_data));
+    
+    uint8_t combined[512];
+    memcpy(combined, frame1, len1);
+    memcpy(combined + len1, frame2, len2);
+    size_t total_len = len1 + len2;
+    
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
+                                             (const char *)combined, total_len);
+    
+    if (ctx.frame_count < 2 && parsed == total_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
+    }
+    
+    TEST_ASSERT(parsed == total_len, "Should parse both frames");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
+    TEST_ASSERT(ctx.frame_count == 2, "Should receive 2 frames");
+    TEST_ASSERT(ctx.opcodes[0] == EZ_WS_OPCODE_PING, "First frame should be PING");
+    TEST_ASSERT(ctx.opcodes[1] == EZ_WS_OPCODE_PONG, "Second frame should be PONG");
+    TEST_ASSERT(ctx.payload_lengths[0] == strlen(ping_data) &&
+                ctx.payload_lengths[1] == strlen(pong_data),
+                "Payload lengths should match");
+    
+    TEST_PASS();
+}
+
+/* RFC 6455: TEXT + PING + TEXT 组合测试（控制帧可以插入数据帧之间） */
+static void test_combo_text_ping_text(void) {
+    TEST_START("Combo: TEXT + PING + TEXT (control frame between data frames)");
+    
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
+    multi_frame_context_t ctx = {0};
+    
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
+    parser.data = &ctx;
+    
+    settings.on_frame_begin = on_frame_begin_multi;
+    settings.on_frame_payload = on_frame_payload_multi;
+    settings.on_frame_complete = on_frame_complete_multi;
+    
+    const char *text1 = "Message 1";
+    const char *ping_data = "hb";
+    const char *text2 = "Message 2";
+    
+    uint8_t frame1[256], frame2[256], frame3[256];
+    size_t len1 = build_websocket_frame(frame1, sizeof(frame1), true,
+                                       EZ_WS_OPCODE_TEXT, false, NULL,
+                                       (const uint8_t *)text1, strlen(text1));
+    size_t len2 = build_websocket_frame(frame2, sizeof(frame2), true,
+                                       EZ_WS_OPCODE_PING, true, NULL,
+                                       (const uint8_t *)ping_data, strlen(ping_data));
+    size_t len3 = build_websocket_frame(frame3, sizeof(frame3), true,
+                                       EZ_WS_OPCODE_TEXT, false, NULL,
+                                       (const uint8_t *)text2, strlen(text2));
+    
+    uint8_t combined[768];
+    memcpy(combined, frame1, len1);
+    memcpy(combined + len1, frame2, len2);
+    memcpy(combined + len1 + len2, frame3, len3);
+    size_t total_len = len1 + len2 + len3;
+    
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
+                                             (const char *)combined, total_len);
+    
+    if (ctx.frame_count < 3 && parsed == total_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
+    }
+    
+    TEST_ASSERT(parsed == total_len, "Should parse all frames");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
+    TEST_ASSERT(ctx.frame_count == 3, "Should receive 3 frames");
+    TEST_ASSERT(ctx.opcodes[0] == EZ_WS_OPCODE_TEXT, "First frame should be TEXT");
+    TEST_ASSERT(ctx.opcodes[1] == EZ_WS_OPCODE_PING, "Second frame should be PING");
+    TEST_ASSERT(ctx.opcodes[2] == EZ_WS_OPCODE_TEXT, "Third frame should be TEXT");
+    
+    TEST_PASS();
+}
+
+/* RFC 6455: 分片TEXT + 中间插入PING + 继续TEXT分片 */
+static void test_combo_fragmented_text_with_ping_interjection(void) {
+    TEST_START("Combo: Fragmented TEXT with PING interjection");
+    
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
+    multi_frame_context_t ctx = {0};
+    
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
+    parser.data = &ctx;
+    
+    settings.on_frame_begin = on_frame_begin_multi;
+    settings.on_frame_payload = on_frame_payload_multi;
+    settings.on_frame_complete = on_frame_complete_multi;
+    
+    /* RFC 6455 允许控制帧插入分片消息中间 */
+    const char *text_part1 = "Part1";
+    const char *ping_data = "ping";
+    const char *text_part2 = "Part2";
+    
+    uint8_t frame1[256], frame2[256], frame3[256];
+    /* 第一个TEXT分片 (FIN=0) */
+    size_t len1 = build_websocket_frame(frame1, sizeof(frame1), false,
+                                       EZ_WS_OPCODE_TEXT, false, NULL,
+                                       (const uint8_t *)text_part1, strlen(text_part1));
+    /* 插入PING (FIN=1, 控制帧必须FIN=1) */
+    size_t len2 = build_websocket_frame(frame2, sizeof(frame2), true,
+                                       EZ_WS_OPCODE_PING, true, NULL,
+                                       (const uint8_t *)ping_data, strlen(ping_data));
+    /* 最后的TEXT分片 (FIN=1, CONTINUATION) */
+    size_t len3 = build_websocket_frame(frame3, sizeof(frame3), true,
+                                       EZ_WS_OPCODE_CONTINUATION, false, NULL,
+                                       (const uint8_t *)text_part2, strlen(text_part2));
+    
+    uint8_t combined[768];
+    memcpy(combined, frame1, len1);
+    memcpy(combined + len1, frame2, len2);
+    memcpy(combined + len1 + len2, frame3, len3);
+    size_t total_len = len1 + len2 + len3;
+    
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
+                                             (const char *)combined, total_len);
+    
+    if (ctx.frame_count < 3 && parsed == total_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
+    }
+    
+    TEST_ASSERT(parsed == total_len, "Should parse all frames");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
+    TEST_ASSERT(ctx.frame_count == 3, "Should receive 3 frames");
+    TEST_ASSERT(ctx.opcodes[0] == EZ_WS_OPCODE_TEXT, "First frame should be TEXT");
+    TEST_ASSERT(ctx.fins[0] == false, "First TEXT frame should have FIN=0");
+    TEST_ASSERT(ctx.opcodes[1] == EZ_WS_OPCODE_PING, "Second frame should be PING");
+    TEST_ASSERT(ctx.fins[1] == true, "PING frame must have FIN=1");
+    TEST_ASSERT(ctx.opcodes[2] == EZ_WS_OPCODE_CONTINUATION, "Third frame should be CONTINUATION");
+    TEST_ASSERT(ctx.fins[2] == true, "Final CONTINUATION frame should have FIN=1");
+    
+    TEST_PASS();
+}
+
+/* RFC 6455: BINARY + PONG + CLOSE 组合 */
+static void test_combo_binary_pong_close(void) {
+    TEST_START("Combo: BINARY + PONG + CLOSE");
+    
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
+    multi_frame_context_t ctx = {0};
+    
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
+    parser.data = &ctx;
+    
+    settings.on_frame_begin = on_frame_begin_multi;
+    settings.on_frame_payload = on_frame_payload_multi;
+    settings.on_frame_complete = on_frame_complete_multi;
+    
+    const uint8_t binary_data[] = {0xDE, 0xAD, 0xBE, 0xEF};
+    const char *pong_data = "pong";
+    const uint8_t close_code[] = {0x03, 0xE8}; /* 1000 = Normal Closure */
+    
+    uint8_t frame1[256], frame2[256], frame3[256];
+    size_t len1 = build_websocket_frame(frame1, sizeof(frame1), true,
+                                       EZ_WS_OPCODE_BINARY, false, NULL,
+                                       binary_data, sizeof(binary_data));
+    size_t len2 = build_websocket_frame(frame2, sizeof(frame2), true,
+                                       EZ_WS_OPCODE_PONG, true, NULL,
+                                       (const uint8_t *)pong_data, strlen(pong_data));
+    size_t len3 = build_websocket_frame(frame3, sizeof(frame3), true,
+                                       EZ_WS_OPCODE_CLOSE, true, NULL,
+                                       close_code, sizeof(close_code));
+    
+    uint8_t combined[768];
+    memcpy(combined, frame1, len1);
+    memcpy(combined + len1, frame2, len2);
+    memcpy(combined + len1 + len2, frame3, len3);
+    size_t total_len = len1 + len2 + len3;
+    
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
+                                             (const char *)combined, total_len);
+    
+    if (ctx.frame_count < 3 && parsed == total_len && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
+    }
+    
+    TEST_ASSERT(parsed == total_len, "Should parse all frames");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
+    TEST_ASSERT(ctx.frame_count == 3, "Should receive 3 frames");
+    TEST_ASSERT(ctx.opcodes[0] == EZ_WS_OPCODE_BINARY, "First frame should be BINARY");
+    TEST_ASSERT(ctx.opcodes[1] == EZ_WS_OPCODE_PONG, "Second frame should be PONG");
+    TEST_ASSERT(ctx.opcodes[2] == EZ_WS_OPCODE_CLOSE, "Third frame should be CLOSE");
+    
+    TEST_PASS();
+}
+
+/* RFC 6455: TEXT + BINARY + PING + PONG + TEXT 复杂组合 */
+static void test_combo_complex_sequence(void) {
+    TEST_START("Combo: Complex sequence (TEXT + BINARY + PING + PONG + TEXT)");
+    
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
+    multi_frame_context_t ctx = {0};
+    
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
+    parser.data = &ctx;
+    
+    settings.on_frame_begin = on_frame_begin_multi;
+    settings.on_frame_payload = on_frame_payload_multi;
+    settings.on_frame_complete = on_frame_complete_multi;
+    
+    const char *text1 = "Hello";
+    const uint8_t binary_data[] = {0x01, 0x02, 0x03};
+    const char *ping_data = "p";
+    const char *pong_data = "p";
+    const char *text2 = "World";
+    
+    uint8_t frames[5][256];
+    size_t lens[5];
+    lens[0] = build_websocket_frame(frames[0], 256, true, EZ_WS_OPCODE_TEXT, false, NULL,
+                                   (const uint8_t *)text1, strlen(text1));
+    lens[1] = build_websocket_frame(frames[1], 256, true, EZ_WS_OPCODE_BINARY, false, NULL,
+                                   binary_data, sizeof(binary_data));
+    lens[2] = build_websocket_frame(frames[2], 256, true, EZ_WS_OPCODE_PING, true, NULL,
+                                   (const uint8_t *)ping_data, strlen(ping_data));
+    lens[3] = build_websocket_frame(frames[3], 256, true, EZ_WS_OPCODE_PONG, true, NULL,
+                                   (const uint8_t *)pong_data, strlen(pong_data));
+    lens[4] = build_websocket_frame(frames[4], 256, true, EZ_WS_OPCODE_TEXT, false, NULL,
+                                   (const uint8_t *)text2, strlen(text2));
+    
+    uint8_t combined[2048];
+    size_t offset = 0;
+    for (int i = 0; i < 5; i++) {
+        memcpy(combined + offset, frames[i], lens[i]);
+        offset += lens[i];
+    }
+    
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
+                                             (const char *)combined, offset);
+    
+    if (ctx.frame_count < 5 && parsed == offset && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
+    }
+    
+    TEST_ASSERT(parsed == offset, "Should parse all frames");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
+    TEST_ASSERT(ctx.frame_count == 5, "Should receive 5 frames");
+    TEST_ASSERT(ctx.opcodes[0] == EZ_WS_OPCODE_TEXT, "Frame 1 should be TEXT");
+    TEST_ASSERT(ctx.opcodes[1] == EZ_WS_OPCODE_BINARY, "Frame 2 should be BINARY");
+    TEST_ASSERT(ctx.opcodes[2] == EZ_WS_OPCODE_PING, "Frame 3 should be PING");
+    TEST_ASSERT(ctx.opcodes[3] == EZ_WS_OPCODE_PONG, "Frame 4 should be PONG");
+    TEST_ASSERT(ctx.opcodes[4] == EZ_WS_OPCODE_TEXT, "Frame 5 should be TEXT");
+    
+    TEST_PASS();
+}
+
+/* RFC 6455: 连续多个PING/PONG */
+static void test_combo_multiple_ping_pong(void) {
+    TEST_START("Combo: Multiple consecutive PING and PONG frames");
+    
+    ez_websocket_parser parser;
+    ez_websocket_parser_settings settings;
+    multi_frame_context_t ctx = {0};
+    
+    ez_websocket_parser_init(&parser);
+    ez_websocket_parser_settings_init(&settings);
+    parser.data = &ctx;
+    
+    settings.on_frame_begin = on_frame_begin_multi;
+    settings.on_frame_payload = on_frame_payload_multi;
+    settings.on_frame_complete = on_frame_complete_multi;
+    
+    /* PING1 + PONG1 + PING2 + PONG2 */
+    uint8_t frames[4][256];
+    size_t lens[4];
+    const char *data[4] = {"ping1", "pong1", "ping2", "pong2"};
+    enum ez_ws_opcode opcodes[4] = {
+        EZ_WS_OPCODE_PING, EZ_WS_OPCODE_PONG,
+        EZ_WS_OPCODE_PING, EZ_WS_OPCODE_PONG
+    };
+    
+    for (int i = 0; i < 4; i++) {
+        lens[i] = build_websocket_frame(frames[i], 256, true, opcodes[i], true, NULL,
+                                       (const uint8_t *)data[i], strlen(data[i]));
+    }
+    
+    uint8_t combined[1024];
+    size_t offset = 0;
+    for (int i = 0; i < 4; i++) {
+        memcpy(combined + offset, frames[i], lens[i]);
+        offset += lens[i];
+    }
+    
+    size_t parsed = ez_websocket_parser_execute(&parser, &settings,
+                                             (const char *)combined, offset);
+    
+    if (ctx.frame_count < 4 && parsed == offset && EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK) {
+        ez_websocket_parser_execute(&parser, &settings, "", 0);
+    }
+    
+    TEST_ASSERT(parsed == offset, "Should parse all frames");
+    TEST_ASSERT(EZ_WEBSOCKET_PARSER_ERRNO(&parser) == EZ_WSE_OK, "Should have no error");
+    TEST_ASSERT(ctx.frame_count == 4, "Should receive 4 frames");
+    for (int i = 0; i < 4; i++) {
+        TEST_ASSERT(ctx.opcodes[i] == opcodes[i], "Opcode should match");
+    }
+    
+    TEST_PASS();
+}
+
 /* Test version function */
 static void test_version_function(void) {
     TEST_START("Version function");
@@ -1580,6 +1959,7 @@ int main(void) {
     test_rfc6455_binary_frame();
     test_rfc6455_ping_frame();
     test_rfc6455_pong_frame();
+    test_rfc6455_pong_frame_with_payload_callback();
     test_rfc6455_close_frame();
     test_rfc6455_empty_payload();
     test_rfc6455_payload_length_125();
@@ -1599,6 +1979,14 @@ int main(void) {
     test_rfc6455_partial_frame_data();
     test_rfc6455_fragmented_message_multiple_arrivals();
     test_rfc6455_large_payload();
+    
+    /* Combination tests - various frame sequences */
+    test_combo_ping_pong_sequence();
+    test_combo_text_ping_text();
+    test_combo_fragmented_text_with_ping_interjection();
+    test_combo_binary_pong_close();
+    test_combo_complex_sequence();
+    test_combo_multiple_ping_pong();
     
     /* Utility function tests */
     test_version_function();
