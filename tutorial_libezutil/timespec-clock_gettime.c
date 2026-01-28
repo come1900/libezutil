@@ -14,11 +14,14 @@
  */
 /*-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-*/
 
+#define _POSIX_C_SOURCE 200809L
+#define _BSD_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
 
-#include<unistd.h> // usleep
 #include <ezutil/timespec.h>
 
 int main(int argc,char * argv[])
@@ -33,8 +36,8 @@ int main(int argc,char * argv[])
     usleep(1000);
     clock_gettime(CLOCK_MONOTONIC, &ts2);
 
-    printf("%32s : %-8ld, %ld\n", "ts1", ts1.tv_sec, ts1.tv_nsec);
-    printf("%32s : %-8ld, %ld\n", "ts2", ts2.tv_sec, ts2.tv_nsec);
+    printf("%32s : %-8lld, %ld\n", "ts1", (long long)ts1.tv_sec, ts1.tv_nsec);
+    printf("%32s : %-8lld, %ld\n", "ts2", (long long)ts2.tv_sec, ts2.tv_nsec);
     printf("%32s : %f\n", "timespec_to_double", timespec_to_double(ts2));
     printf("%32s : %ld\n", "timespec_to_ms",    timespec_to_ms(ts2));
     printf("%32s : %ld\n", "timespec_sub(ms)",  timespec_to_ms(timespec_sub(ts2, ts1)) );

@@ -9,6 +9,7 @@
 gcc -I/home/wujj/libs/include base58.c ezbase58.c -o base58 -L/home/wujj/libs/lib -lezutil-linux
 */
 
+#define _POSIX_C_SOURCE 200809L
 #include <ctype.h>
 #include <stdbool.h>
 #include <stdint.h>

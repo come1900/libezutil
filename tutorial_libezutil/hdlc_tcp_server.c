@@ -187,7 +187,6 @@ static int add_client(int client_fd)
     
     struct epoll_event ev;
     ev.events = EPOLLIN | EPOLLET;
-    ev.data.fd = client_fd;
     ev.data.u32 = idx;  // Store client index
     
     if (epoll_ctl(g_server.epoll_fd, EPOLL_CTL_ADD, client_fd, &ev) < 0)
@@ -288,7 +287,6 @@ static int run_server(int port)
     // Add listen socket to epoll
     struct epoll_event ev;
     ev.events = EPOLLIN | EPOLLET;
-    ev.data.fd = g_server.listen_fd;
     ev.data.u32 = MAX_CLIENTS;  // Special marker for listen socket
     
     if (epoll_ctl(g_server.epoll_fd, EPOLL_CTL_ADD, g_server.listen_fd, &ev) < 0)

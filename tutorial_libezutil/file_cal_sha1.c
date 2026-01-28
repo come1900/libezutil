@@ -36,7 +36,7 @@ static char copyright[] =
 static char rcsid[] = "$Tools: file_cal_sha1.c,v 1.0 2015-09-30 10:20 joy.woo Exp $";
 #endif /* not lint */
 
-const int FILE_PICE_SIZE = 4096;
+const int const FILE_PICE_SIZE = 4096;
 
 int file_sha1(char *output, char *p_filename);
 

@@ -36,15 +36,11 @@ include         ../../lazaru/Makefile.Defines/Makefile.Defines.$(PLATFORM)
 CFLAGS += -DLINUX
 #CFLAGS	+= -I../include
 CFLAGS += -Wall -O2 -Os
-#CFLAGS += -D_REENTRANT -msoft-float
+CFLAGS += -D_REENTRANT -msoft-float
 
 #LDFLAGS += -L../lib/\
 #	-lezthread-linux-x86-32
 EZLIBS_BASEDIR_LIBS=$(HOME)/libs
-
-CFLAGS += -I$(EZLIBS_BASEDIR_LIBS)/googletest-$(PLATFORM)/include/
-LIBS   += -L$(EZLIBS_BASEDIR_LIBS)/googletest-$(PLATFORM)/lib -lgtest -lgtest_main
-
 CFLAGS += -I${EZLIBS_BASEDIR_LIBS}/include
 #LIBS += -L${EZLIBS_BASEDIR_LIBS}/lib -lezutil-$(PLATFORM)
 
@@ -77,8 +73,6 @@ TARGET += test_sha_str-$(PLATFORM)
 TARGET += test_ezuuid-$(PLATFORM)
 TARGET += test_ez_fs-$(PLATFORM)
 TARGET += test_aes-$(PLATFORM)
-
-TARGET += hello_gtest-$(PLATFORM)
 
 #test_api_exa-$(PLATFORM)\
 #		test_api_exa_2-$(PLATFORM)
@@ -114,9 +108,6 @@ test_ez_fs-$(PLATFORM):test_ez_fs.o $(LIB_OBJS)
 	$(CPP) -o $@ $^ $(LDFLAGS)
 
 test_aes-$(PLATFORM):test_aes.o $(LIB_OBJS)
-	$(CPP) -o $@ $^ $(LDFLAGS)
-
-hello_gtest-$(PLATFORM):hello_gtest.o $(LIB_OBJS)
 	$(CPP) -o $@ $^ $(LDFLAGS)
 
 .c.o:

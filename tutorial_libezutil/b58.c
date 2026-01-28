@@ -136,8 +136,7 @@ void testFull()
 		char unsigned decode_in[_defTstBufferSize * 2] = {0};
 		char unsigned decode_out[_defTstBufferSize * 2] = {0};
 		size_t decode_out_size = sizeof(decode_out);
-		memcpy(decode_in, encode_out, sizeof(decode_in) - 1);
-		decode_in[sizeof(decode_in) - 1] = '\0';
+		strncpy((char *)decode_in, (char *)encode_out, sizeof(decode_in) - 1);
 		int base58_decode_iret = base58_decode(decode_in, encode_in_size, decode_out, &decode_out_size);
 
 		assert(base58_decode_iret == 0);

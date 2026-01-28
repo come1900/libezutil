@@ -328,19 +328,7 @@ static int try_connect(void)
     
     printf("Connected to %s:%d\n", g_client.config.host, g_client.config.port);
     
-    // Add socket to epoll
-    struct epoll_event ev;
-    ev.events = EPOLLIN | EPOLLET;
-    ev.data.fd = fd;
-    if (epoll_ctl(g_client.epoll_fd, EPOLL_CTL_ADD, fd, &ev) < 0)
-    {
-        perror("epoll_ctl");
-        close(fd);
-        g_client.fd = -1;
-        g_client.connected = false;
-        return -1;
-    }
-    
+    // Socket is already in epoll from connect_to_server, just return
     return 0;
 }
 

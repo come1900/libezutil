@@ -47,9 +47,9 @@ static int log_to = EZ_LOG_TO_STDOUT;
 static int log_size = 0;// = EZ_LOG_DEFAULT_FILE_SIZE;
 
 static char logstr[EZ_LOG_MAX_LINE_SIZE+1];
-static char datestr[32];
+static char datestr[16];
 static char timestr[16];
-static char mss_str[16];
+static char mss_str[3+4+1];
 
 static CRITICAL_SECTION cs_log;
 static FILE *flog = NULL;
@@ -109,9 +109,9 @@ int mk_log(int logLevel, const char *pszFmt, va_list argp)
 
     //ftime(&tb);
     now=localtime(&time_sec_utc);
-    snprintf(datestr, sizeof(datestr), "%04d-%02d-%02d", now->tm_year+1900,now->tm_mon+1,now->tm_mday);
-    snprintf(timestr, sizeof(timestr), "%02d:%02d:%02d", now->tm_hour     ,now->tm_min  ,now->tm_sec );
-    snprintf(mss_str, sizeof(mss_str), "%03d -%1d-", millitm, logLevel);
+    sprintf(datestr,"%04d-%02d-%02d", now->tm_year+1900,now->tm_mon+1,now->tm_mday);
+    sprintf(timestr,"%02d:%02d:%02d", now->tm_hour     ,now->tm_min  ,now->tm_sec );
+    sprintf(mss_str,"%03d -%1d-", millitm, logLevel);
     //sprintf(mss_str,"%03d", tb.millitm);
 
     return 0;
@@ -158,17 +158,11 @@ void log_file(int iFmt)
             fclose(flog);
             flog = NULL;
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat-truncation"
-            snprintf(logfilename3, sizeof(logfilename3), "%s%d", logfilename1, log_nums);
-#pragma GCC diagnostic pop
+            sprintf(logfilename3, "%s%d", logfilename1, log_nums);
 			strcpy(logfilename2, logfilename3);
             for (ii=log_nums-1; ii>0; ii--)
             {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wformat-truncation"
-                snprintf(logfilename2, sizeof(logfilename2), "%s%d", logfilename1, ii);
-#pragma GCC diagnostic pop
+                sprintf(logfilename2, "%s%d", logfilename1, ii);
                 //printf("rename:%s %s\n", logfilename2,logfilename3);
                 if (rename(logfilename2,logfilename3))
                 {

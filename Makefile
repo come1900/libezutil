@@ -21,7 +21,7 @@ include		$(PUB_MAKE_FILE_PREFIX)/Makefile.Batch.Build
 ifndef PLATFORM
 PLATFORM = linux
 endif
-#PLATFORM = linux-mips-mipsl-12.3-openwrt
+#PLATFORM = linux-mipsel-openwrt-linux
 VERSION="1.0.0"
 
 # CPP, CFLAGS, LIBS

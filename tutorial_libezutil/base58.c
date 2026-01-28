@@ -48,8 +48,7 @@ void testPrimaryUsage()
 	char unsigned decode_in[1024] = {0};
 	char unsigned decode_out[1024] = {0};
 	size_t decode_out_size = sizeof(decode_out);
-	memcpy(decode_in, encode_out, sizeof(decode_in) - 1);
-	decode_in[sizeof(decode_in) - 1] = '\0';
+	strncpy((char *)decode_in, (char *)encode_out, sizeof(decode_in) - 1);
 	int base58_decode_iret = base58_decode(decode_in, strlen((char *)decode_in), decode_out, &decode_out_size);
 
 	DBG(
@@ -80,17 +79,12 @@ void testFull()
 		ARG_USED(bel);
 		int base58_encode_iret = base58_encode(encode_in, encode_in_size, encode_out, &encode_out_size);
 		ARG_USED(base58_encode_iret);
-		assert(base58_encode_iret == 0);
 		if (encode_out_size != bel)
 		{
 			printf("i:%ld, encode_out_size:%ld, bel:%ld\n", i, encode_out_size, bel);
-			// base58_encode_length 是近似值，实际编码长度可能略有不同
-			// 只要实际长度不超过预期长度即可
-			if (encode_out_size > bel) {
-				printf("ERROR: encode_out_size (%ld) > bel (%ld)\n", encode_out_size, bel);
-				assert(0);
-			}
 		}
+		assert(base58_encode_iret == 0);
+		assert(encode_out_size == bel);
 
 		size_t bdl = base58_decode_length(encode_out_size);
 		ARG_USED(bdl);
@@ -98,17 +92,17 @@ void testFull()
 		char unsigned decode_in[_defTstBufferSize * 2] = {0};
 		char unsigned decode_out[_defTstBufferSize * 2] = {0};
 		size_t decode_out_size = sizeof(decode_out);
-		memcpy(decode_in, encode_out, encode_out_size);
-		decode_in[encode_out_size] = '\0';
-		int base58_decode_iret = base58_decode(decode_in, encode_out_size, decode_out, &decode_out_size);
+		strncpy((char *)decode_in, (char *)encode_out, sizeof(decode_in) - 1);
+		int base58_decode_iret = base58_decode(decode_in, encode_in_size, decode_out, &decode_out_size);
 
 		assert(base58_decode_iret == 0);
-		assert(memcmp(encode_in, decode_out, encode_in_size) == 0);
+		assert(memcmp(encode_in, decode_out, encode_in_size));
 
-		// base58_decode_length 和 base58_encode_length 是近似值，实际长度可能略有不同
-		// 最重要的是验证解码后的数据与原始数据一致
-		// decode_out_size 应该等于 encode_in_size（原始输入长度）
-		assert(decode_out_size == encode_in_size);
+		if (decode_out_size != bdl)
+		{
+			printf("i:%ld, decode_out_size:%ld, bdl:%ld\n", i, decode_out_size, bdl);
+		}
+		assert(decode_out_size == bdl);
 
 	} // for
 }

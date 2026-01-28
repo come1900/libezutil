@@ -10,6 +10,8 @@
 //192.168.1.2 and 192.168.1.3 : 1 
 //192.168.2.2 and 192.168.1.3 : 0 
 
+#define _POSIX_C_SOURCE 200809L
+#define _BSD_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 

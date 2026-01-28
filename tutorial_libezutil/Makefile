@@ -21,12 +21,12 @@ PLATFORM = linux
 #PLATFORM = osx
 #PLATFORM = linux-mips-openwrt
 #PLATFORM = linux-mips-mipsl-openwrt
-#PLATFORM = linux-mips-mipsl-12.3-openwrt
+#PLATFORM = linux-mipsel-openwrt-linux
 
 include         ../../lazaru/Makefile.Defines/Makefile.Defines.$(PLATFORM)
 
 CFLAGS += -Wall 
-CFLAGS +=  -g
+CFLAGS +=  -g# -std=c99
 #
 #CFLAGS += -DHAVE_ICONV
 

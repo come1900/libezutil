@@ -17,7 +17,6 @@
 #include <stdlib.h>
 
 #include <time.h>
-#include <sys/time.h>
 
 #include "str_opr.h"
 
@@ -66,6 +65,7 @@ int ez_log2file(char *pFilePathName, char *pLog, char *pMod)
     if (pFile==NULL)
     {
         printf("Open:%s Failed.\n", pFilePathName);
+        fclose (pFile);
         return -1;
     }
 
@@ -109,15 +109,12 @@ int ez_timeval_subtract (struct timeval *result, struct timeval *x, struct timev
 
 time_t ez_time_ms(time_t *t)
 {
-    struct timeval tv;
-    time_t result;
-
-    gettimeofday(&tv, NULL);
-    result = 1000 * tv.tv_sec + tv.tv_usec / 1000;
+    struct timeb tb;
+    ftime(&tb);
 
     if (t != NULL)
-        *t = result;
+        *t = 1000 * tb.time + tb.millitm;
 
-    return result;
+    return 1000 * tb.time + tb.millitm;
 }
 /*-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-*/
